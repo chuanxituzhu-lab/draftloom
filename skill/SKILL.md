@@ -1,3 +1,8 @@
+---
+name: wechat-layout
+description: Edit and preview Chinese WeChat Official Account articles with the local-first document reducer, GUI harness, CLI commands, MCP stdio tools, undo/redo, local image assets, and HTML export. Use when working on 公众号排版、微信文章结构化编辑、图片插入或本地预览。
+---
+
 # 公众号排版 Skill — MVP v0.1
 
 ## Purpose
