@@ -61,3 +61,15 @@
 ## Event
 
 每次内容状态改变，页面派发：`wechat-layout:changed`。
+
+## CLI / MCP 接入
+
+在项目根目录运行：
+
+```bash
+npm run cli -- init
+npm run cli -- text --text "标题：新的文章标题"
+npm run cli -- export --out article.html
+```
+
+MCP 客户端使用 `npm run mcp`，通过 JSON-RPC stdio 调用 `publishing_state`、`publishing_apply_text`、`publishing_apply_intent` 和 `publishing_export`。状态默认写入 `.local-data/document.json`，也可通过 `WECHAT_LAYOUT_DATA` 指定路径。

@@ -26,6 +26,14 @@ npm start
 
 浏览器打开：`http://127.0.0.1:4173`
 
+CLI / MCP 接入：
+
+```bash
+npm run cli -- text --text "标题：AI 时代的个人工作台"
+npm run cli -- export --out article.html
+npm run mcp
+```
+
 ## Harness API
 
 页面加载后暴露：

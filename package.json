@@ -6,6 +6,8 @@
   "scripts": {
     "start": "node server.mjs",
     "dev": "node server.mjs",
+    "cli": "node scripts/cli.mjs",
+    "mcp": "node scripts/mcp.mjs",
     "test": "node --test",
     "check": "node --check src/app.js && node --check src/core.js && node --check server.mjs"
   }
