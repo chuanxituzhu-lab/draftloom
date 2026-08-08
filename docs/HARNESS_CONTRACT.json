@@ -1,0 +1,9 @@
+{
+  "name": "wechat-layout-harness",
+  "version": "0.1.0",
+  "state_model": "single-document-source-of-truth",
+  "view_state_excluded": ["previewZoom", "selection"],
+  "events": ["wechat-layout:changed"],
+  "methods": ["getState", "applyText", "applyIntent", "addImage", "selectBlock", "undo", "redo"],
+  "max_history": 50
+}
