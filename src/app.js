@@ -1,4 +1,4 @@
-import { createInitialDocument, parseCommand, reduceDocument, VersionStore, importArticle, getLayoutGuidance } from './core.js';
+import { createInitialDocument, parseCommand, reduceDocument, VersionStore, importArticle, getLayoutGuidance, THEMES, normalizeTheme, renderDocumentBody, renderArticleHtml } from './core.js';
 
 const STORAGE_KEY = 'wechat-layout-mvp:v0.1';
 let doc = loadDocument() || createInitialDocument();
@@ -54,15 +54,16 @@ function render() {
       </aside>
       <section class="panel editor-panel">
         <div id="importDrop" class="import-drop"><strong>拖入文章或图片，自动排版</strong><span>支持 Markdown / TXT 与多张本地图片；导入后可继续人工调整</span></div>
-        <div class="command-box"><div class="command-label">文字指令</div><div class="command-row"><input id="commandInput" placeholder="如：添加标题：今天的思考 / 上移当前 / 删除当前"><button id="runCommand">执行</button></div><div class="hint">未识别的文字会作为新段落加入文章。</div></div>
+        <div class="command-box"><div class="command-label">文字指令</div><div class="command-row"><textarea id="commandInput" rows="1" placeholder="如：把当前改成引用 / 拆分当前段落 / 添加表格：列1|列2"></textarea><button id="runCommand">执行</button></div><div class="hint">支持按区块转换、拆分、主题切换和组件创建；表格可用换行或分号分隔；未识别的文字会作为新段落。</div></div>
         <div class="guidance-box"><div class="command-label">自动排版指导</div><div id="guidanceList">${renderGuidance()}</div></div>
+        <div class="humanizer-box"><div class="command-label">去 AI 味</div><div class="humanizer-row"><select id="humanizerMode"><option value="natural" ${doc.meta.humanizer?.mode === 'natural' ? 'selected' : ''}>自然化</option><option value="conservative" ${doc.meta.humanizer?.mode === 'conservative' ? 'selected' : ''}>保守调整</option></select><button id="humanizeBtn">应用到正文</button></div><div class="hint">本地确定性处理，原稿保存在导入记录中，可随时回滚。</div></div>
         <div class="title-editor"><input id="titleInput" value="${esc(doc.title)}" aria-label="标题"><input id="subtitleInput" value="${esc(doc.subtitle)}" aria-label="副标题"></div>
         <div class="blocks">${doc.blocks.map(renderEditorBlock).join('')}</div>
-        <div class="insert-row"><button data-add="heading">+ 标题</button><button data-add="paragraph">+ 段落</button><button data-add="quote">+ 引用</button></div>
+        <div class="insert-row"><button data-add="heading">+ 标题</button><button data-add="paragraph">+ 段落</button><button data-add="quote">+ 引用</button><button data-add="list">+ 列表</button><button data-add="table">+ 表格</button><button data-add="cta">+ CTA</button><button data-add="gallery">+ 画廊</button><button data-add="media">+ 媒体</button></div>
       </section>
       <aside class="panel preview-panel">
-        <div class="preview-toolbar"><div><b>微信文章实时预览</b><span>仅视觉缩放，不改变内容</span></div><div class="zoom"><button id="zoomOut">−</button><span id="zoomText">${Math.round(zoom*100)}%</span><button id="zoomIn">＋</button><button id="zoomReset">1:1</button></div></div>
-        <div class="phone-stage"><article class="wechat-article" style="transform:scale(${zoom})">${renderPreview()}</article></div>
+        <div class="preview-toolbar"><div><b>微信文章实时预览</b><span>仅视觉缩放，不改变内容</span></div><div class="preview-controls"><label>主题<select id="themeSelect">${Object.values(THEMES).map(theme => `<option value="${theme.id}" ${normalizeTheme(doc.theme) === theme.id ? 'selected' : ''}>${theme.label}</option>`).join('')}</select></label><div class="zoom"><button id="zoomOut">−</button><span id="zoomText">${Math.round(zoom*100)}%</span><button id="zoomIn">＋</button><button id="zoomReset">1:1</button></div></div></div>
+        <div class="phone-stage"><article class="wechat-article theme-${normalizeTheme(doc.theme)}" style="transform:scale(${zoom})">${renderPreview()}</article></div>
       </aside>
     </main>
     <footer class="statusbar"><span id="statusText">${esc(status)}</span><span id="revisionText">v${doc.meta.revision} · ${new Date(doc.meta.updatedAt).toLocaleTimeString()}</span></footer>
@@ -75,17 +76,29 @@ function renderEditorBlock(b) {
     const a = assetById(b.assetId);
     return `<div class="block ${b.id===selectedId?'selected':''}" data-block="${b.id}">${a?`<img class="editor-image" src="${a.dataUrl}" alt="${esc(b.text)}">`:'<div class="missing">图片素材已丢失</div>'}<div class="block-tools"><button data-move="-1">↑</button><button data-move="1">↓</button><button data-delete>删除</button></div></div>`;
   }
+  if (b.type === 'list') {
+    return `<div class="block ${b.id===selectedId?'selected':''}" data-block="${b.id}"><div class="special-label">${b.ordered?'有序':'无序'}列表</div><textarea class="special-editor" data-list-edit="${b.id}">${esc((b.items || b.text?.split('\n') || []).join('\n'))}</textarea><div class="block-tools"><button data-move="-1">↑</button><button data-move="1">↓</button><button data-delete>删除</button></div></div>`;
+  }
+  if (b.type === 'table') {
+    const value = [b.headers || [], ...(b.rows || [])].map(row => row.join(' | ')).join('\n');
+    return `<div class="block ${b.id===selectedId?'selected':''}" data-block="${b.id}"><div class="special-label">数据表格</div><textarea class="special-editor" data-table-edit="${b.id}">${esc(value)}</textarea><div class="block-tools"><button data-move="-1">↑</button><button data-move="1">↓</button><button data-delete>删除</button></div></div>`;
+  }
+  if (b.type === 'cta') {
+    return `<div class="block ${b.id===selectedId?'selected':''}" data-block="${b.id}"><div class="special-label">CTA · ${esc(b.buttonText || '立即了解')}</div><div class="editable block-cta" contenteditable="true" spellcheck="false" data-component-edit="${b.id}">${esc(b.text)}</div><div class="block-tools"><button data-move="-1">↑</button><button data-move="1">↓</button><button data-delete>删除</button></div></div>`;
+  }
+  if (b.type === 'gallery') {
+    const images = (b.assetIds || []).map(assetById).filter(Boolean).map(asset => `<img src="${asset.dataUrl}" alt="${esc(asset.alt || asset.name)}">`).join('');
+    return `<div class="block ${b.id===selectedId?'selected':''}" data-block="${b.id}"><div class="special-label">画廊 · ${b.assetIds?.length || 0} 张图片</div><div class="editor-gallery">${images || '<span>请使用“添加画廊：图片名”插入素材</span>'}</div><div class="block-tools"><button data-move="-1">↑</button><button data-move="1">↓</button><button data-delete>删除</button></div></div>`;
+  }
+  if (b.type === 'media') {
+    return `<div class="block ${b.id===selectedId?'selected':''}" data-block="${b.id}"><div class="special-label">媒体 · ${esc(b.mediaType || 'video')}</div><div class="editable block-media" contenteditable="true" spellcheck="false" data-component-edit="${b.id}">${esc(b.text)}</div><div class="hint">${esc(b.url || '未设置媒体地址')}</div><div class="block-tools"><button data-move="-1">↑</button><button data-move="1">↓</button><button data-delete>删除</button></div></div>`;
+  }
   const cls = b.type === 'heading' ? 'block-heading' : b.type === 'quote' ? 'block-quote' : 'block-paragraph';
   return `<div class="block ${b.id===selectedId?'selected':''}" data-block="${b.id}"><div class="editable ${cls}" contenteditable="true" spellcheck="false" data-edit="${b.id}">${esc(b.text)}</div><div class="block-tools"><button data-move="-1">↑</button><button data-move="1">↓</button><button data-delete>删除</button></div></div>`;
 }
 
 function renderPreview() {
-  return `<h1>${esc(doc.title)}</h1><p class="subtitle">${esc(doc.subtitle)}</p><div class="meta">公众号排版 · ${new Date(doc.meta.updatedAt).toLocaleDateString()}</div>${doc.blocks.map(b=>{
-    if(b.type==='heading') return `<h2>${esc(b.text)}</h2>`;
-    if(b.type==='quote') return `<blockquote>${esc(b.text)}</blockquote>`;
-    if(b.type==='image'){ const a=assetById(b.assetId); return a?`<figure><img src="${a.dataUrl}" alt="${esc(b.text)}"><figcaption>${esc(b.text)}</figcaption></figure>`:''; }
-    return `<p>${esc(b.text)}</p>`;
-  }).join('')}`;
+  return renderDocumentBody(doc);
 }
 
 function renderGuidance() {
@@ -103,16 +116,34 @@ function bindEvents() {
     el.onfocus=()=>{ selectedId=el.dataset.edit; };
     el.onblur=()=>commit({type:'updateBlock', id:el.dataset.edit, text:el.textContent.trim()}, '编辑内容');
   });
+  document.querySelectorAll('[data-list-edit]').forEach(el=>{
+    el.onfocus=()=>{ selectedId=el.dataset.listEdit; };
+    el.onblur=()=>{ const items=el.value.split(/\n+/).map(item=>item.trim()).filter(Boolean); commit({type:'updateBlock', id:el.dataset.listEdit, text:items.join('\n'), items}, '编辑列表'); };
+  });
+  document.querySelectorAll('[data-table-edit]').forEach(el=>{
+    el.onfocus=()=>{ selectedId=el.dataset.tableEdit; };
+    el.onblur=()=>{ const rows=el.value.split(/\n+/).map(row=>row.split('|').map(cell=>cell.trim()).filter(Boolean)).filter(row=>row.length); commit({type:'updateBlock', id:el.dataset.tableEdit, text:'数据表格', headers:rows[0]||[], rows:rows.slice(1)}, '编辑表格'); };
+  });
+  document.querySelectorAll('[data-component-edit]').forEach(el=>{
+    el.onfocus=()=>{ selectedId=el.dataset.componentEdit; };
+    el.onblur=()=>commit({type:'updateBlock', id:el.dataset.componentEdit, text:el.textContent.trim()}, '编辑组件');
+  });
   document.querySelectorAll('[data-move]').forEach(el=>el.onclick=(e)=>{selectedId=e.target.closest('[data-block]').dataset.block;commit({type:'moveSelected',direction:Number(el.dataset.move)},'移动内容');});
   document.querySelectorAll('[data-delete]').forEach(el=>el.onclick=(e)=>{selectedId=e.target.closest('[data-block]').dataset.block;commit({type:'deleteSelected'},'删除内容');});
-  document.querySelectorAll('[data-add]').forEach(el=>el.onclick=()=>commit({type:'appendBlock',blockType:el.dataset.add,text:el.dataset.add==='heading'?'新标题':el.dataset.add==='quote'?'新的引用':'新的段落'},'新增内容'));
+  document.querySelectorAll('[data-add]').forEach(el=>el.onclick=()=>{
+    const type=el.dataset.add;
+    const defaults={heading:{text:'新标题',level:2},paragraph:{text:'新的段落'},quote:{text:'新的引用'},list:{text:'项目一\n项目二',items:['项目一','项目二']},table:{text:'数据表格',headers:['列1','列2'],rows:[['内容','备注']]},cta:{text:'欢迎继续阅读',buttonText:'立即了解'},gallery:{text:'图片组',assetIds:[]},media:{text:'媒体内容',mediaType:'video',url:''}};
+    commit({type:'appendBlock',blockType:type,...defaults[type]},'新增内容');
+  });
   document.querySelectorAll('[data-asset]').forEach(el=>el.onclick=()=>commit({type:'insertAsset',assetId:el.dataset.asset},'插入图片'));
 
   const run = ()=>{ const input=document.querySelector('#commandInput'); const text=input.value; if(commit(parseCommand(text),`指令：${text.slice(0,24)}`)) input.value=''; };
   document.querySelector('#runCommand').onclick=run;
-  document.querySelector('#commandInput').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();run();}};
+  document.querySelector('#commandInput').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();run();}};
   document.querySelector('#titleInput').onchange=e=>commit({type:'setTitle',text:e.target.value.trim()},'修改标题');
   document.querySelector('#subtitleInput').onchange=e=>commit({type:'setSubtitle',text:e.target.value.trim()},'修改副标题');
+  document.querySelector('#humanizeBtn').onclick=()=>{const mode=document.querySelector('#humanizerMode').value;commit({type:'humanize',mode},`去 AI 味：${mode==='natural'?'自然化':'保守调整'}`);};
+  document.querySelector('#themeSelect').onchange=e=>commit({type:'setTheme',theme:e.target.value},'切换主题');
   document.querySelector('#undoBtn').onclick=()=>{doc=store.undo(doc);persist();render();setStatus('已回滚一步');};
   document.querySelector('#redoBtn').onclick=()=>{doc=store.redo(doc);persist();render();setStatus('已重做一步');};
   document.querySelector('#zoomOut').onclick=()=>setZoom(zoom-.1); document.querySelector('#zoomIn').onclick=()=>setZoom(zoom+.1); document.querySelector('#zoomReset').onclick=()=>setZoom(1);
@@ -137,7 +168,7 @@ async function handleAssets(e){
 }
 function fileToDataUrl(file){return new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=reject;r.readAsDataURL(file);});}
 function exportJson(){ const blob=new Blob([JSON.stringify(doc,null,2)],{type:'application/json'}); const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`wechat-layout-${doc.meta.revision}.json`;a.click();URL.revokeObjectURL(a.href);setStatus('已导出 JSON'); }
-function exportHtml(){ const html=`<!doctype html><meta charset="utf-8"><title>${esc(doc.title)}</title><article style="max-width:677px;margin:auto;padding:24px 18px;font-family:system-ui,'PingFang SC','Microsoft YaHei',sans-serif">${renderPreview()}</article>`; const blob=new Blob([html],{type:'text/html;charset=utf-8'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`wechat-layout-${doc.meta.revision}.html`;a.click();URL.revokeObjectURL(a.href);setStatus('已导出 HTML'); }
+function exportHtml(){ const html=renderArticleHtml(doc); const blob=new Blob([html],{type:'text/html;charset=utf-8'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`wechat-layout-${doc.meta.revision}.html`;a.click();URL.revokeObjectURL(a.href);setStatus('已导出 HTML'); }
 async function importJson(e){ const file=e.target.files?.[0]; if(!file)return; try{const incoming=JSON.parse(await file.text()); validateDocument(incoming); doc=store.commit(incoming,'导入文档');selectedId=doc.blocks[0]?.id||null;persist();render();setStatus('导入成功');}catch(err){setStatus(`导入失败：${err.message}`);} }
 async function handleArticleImport(fileList=[], pastedText=''){
   try {
