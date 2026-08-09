@@ -48,7 +48,11 @@ description: Edit and preview Chinese WeChat Official Account articles with the 
   {"type":"moveSelected","direction":1},
   {"type":"addAsset","asset":{"id":"asset-id","name":"cover.png","type":"image/png","size":0,"dataUrl":"data:image/png;base64,...","alt":"封面"}},
   {"type":"insertAsset","assetId":"asset-id"},
-  {"type":"insertAssetByName","name":"cover"}
+  {"type":"insertAssetByName","name":"cover"},
+  {"type":"convertSelected","blockType":"quote"},
+  {"type":"splitSelected"},
+  {"type":"setTheme","theme":"editorial"},
+  {"type":"humanize","mode":"natural"}
 ]
 ```
 
@@ -63,6 +67,11 @@ description: Edit and preview Chinese WeChat Official Account articles with the 
 - `下移当前`
 - `删除当前`
 - `插入图片：cover`
+- `把当前改成引用`
+- `拆分当前段落`
+- `添加表格：指标|结果\n阅读量|1000`
+- `主题：杂志`
+- `去 AI 味：自然`
 
 ## Event
 
@@ -78,9 +87,11 @@ npm run cli -- import --article article.md --images ./images
 npm run cli -- import --text "文章内容" --image ./cover.png
 npm run cli -- guidance
 npm run cli -- text --text "标题：新的文章标题"
+npm run cli -- humanize --mode natural
 npm run cli -- export --out article.html
+npm run cli -- publish --out .local-data/publish/latest
 ```
 
 GUI 支持将 Markdown/TXT 与多张图片拖入“导入文章+图片”区域；图片会按 Markdown 引用匹配，未引用图片会追加到文章末尾并给出人工指导。
 
-MCP 客户端使用 `npm run mcp`，通过 JSON-RPC stdio 调用 `publishing_import`、`publishing_guidance`、`publishing_state`、`publishing_apply_text`、`publishing_apply_intent` 和 `publishing_export`。状态默认写入 `.local-data/document.json`，也可通过 `WECHAT_LAYOUT_DATA` 指定路径。
+MCP 客户端使用 `npm run mcp`，通过 JSON-RPC stdio 调用 `publishing_import`、`publishing_guidance`、`publishing_state`、`publishing_apply_text`、`publishing_humanize`、`publishing_apply_intent`、`publishing_export` 和 `publishing_publish`。状态默认写入 `.local-data/document.json`，也可通过 `WECHAT_LAYOUT_DATA` 指定路径。`publishing_publish` 默认生成本地交付包；配置 `WECHAT_DRAFT_API_URL` + `WECHAT_ACCESS_TOKEN`，或配置 `WECHAT_APP_ID` + `WECHAT_APP_SECRET` 后才提交远程草稿接口。

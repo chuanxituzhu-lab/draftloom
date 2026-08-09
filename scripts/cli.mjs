@@ -2,7 +2,7 @@
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, join, resolve } from 'node:path';
-import { createInitialDocument, parseCommand, reduceDocument, stamp, clone, importArticle, getLayoutGuidance } from '../src/core.js';
+import { createInitialDocument, parseCommand, reduceDocument, stamp, clone, importArticle, getLayoutGuidance, renderArticleHtml } from '../src/core.js';
 
 const args = process.argv.slice(2);
 const command = args.shift();
@@ -54,16 +54,77 @@ async function importFromInput() {
   await saveState(state);
   return { ...state, guidance: getLayoutGuidance(doc), warnings: doc.meta.importWarnings || [] };
 }
-const escapeHtml = (value = '') => String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
-function renderHtml(doc) {
-  const blocks = doc.blocks.map(block => {
-    const text = escapeHtml(block.text);
-    if (block.type === 'heading') return `<h2 style="margin:28px 0 12px;font-size:20px">${text}</h2>`;
-    if (block.type === 'quote') return `<blockquote style="margin:18px 0;padding:12px 16px;border-left:3px solid #1677ff;background:#eef5ff">${text}</blockquote>`;
-    if (block.type === 'image') { const asset = doc.assets.find(item => item.id === block.assetId); return asset?.dataUrl ? `<figure><img src="${escapeHtml(asset.dataUrl)}" alt="${text}" style="max-width:100%;border-radius:8px"><figcaption>${text}</figcaption></figure>` : ''; }
-    return `<p style="font-size:16px;line-height:1.9">${text}</p>`;
-  }).join('\n');
-  return `<!doctype html><meta charset="utf-8"><article style="max-width:677px;margin:auto;padding:24px 18px;font-family:system-ui,'PingFang SC',sans-serif"><h1>${escapeHtml(doc.title)}</h1><p style="color:#7a8490">${escapeHtml(doc.subtitle)}</p>${blocks}</article>`;
+function renderHtml(doc) { return renderArticleHtml(doc); }
+function dataUrlParts(dataUrl = '') {
+  const match = String(dataUrl).match(/^data:([^;]+);base64,([\s\S]+)$/);
+  return match ? { type: match[1], bytes: Buffer.from(match[2], 'base64') } : null;
+}
+async function resolveWechatAccessToken() {
+  if (process.env.WECHAT_ACCESS_TOKEN) return process.env.WECHAT_ACCESS_TOKEN;
+  if (!process.env.WECHAT_APP_ID || !process.env.WECHAT_APP_SECRET) return null;
+  const url = `https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid=${encodeURIComponent(process.env.WECHAT_APP_ID)}&secret=${encodeURIComponent(process.env.WECHAT_APP_SECRET)}`;
+  const response = await fetch(url);
+  const body = await response.json();
+  if (!response.ok || !body.access_token) throw new Error(`获取微信 access_token 失败：${body.errmsg || response.status}`);
+  return body.access_token;
+}
+async function uploadWechatArticleImage(asset, token) {
+  const parts = dataUrlParts(asset.dataUrl);
+  if (!parts) throw new Error(`图片 ${asset.name} 不是可上传的本地 Data URL`);
+  if (!['image/png', 'image/jpeg', 'image/jpg', 'image/gif'].includes(parts.type)) throw new Error(`微信图文图片暂不支持 ${parts.type}：${asset.name}`);
+  const form = new FormData();
+  form.append('media', new Blob([parts.bytes], { type: parts.type }), asset.name);
+  const endpoint = process.env.WECHAT_IMAGE_UPLOAD_URL || 'https://api.weixin.qq.com/cgi-bin/media/uploadimg';
+  const joiner = endpoint.includes('?') ? '&' : '?';
+  const response = await fetch(`${endpoint}${joiner}access_token=${encodeURIComponent(token)}`, { method: 'POST', body: form });
+  const body = await response.json();
+  if (!response.ok || !body.url) throw new Error(`上传微信图文图片失败：${body.errmsg || response.status}`);
+  return body.url;
+}
+async function publishFromState() {
+  const state = await loadState();
+  const out = resolve(option('out', join('.local-data', 'publish', `revision-${state.doc.meta.revision}`)));
+  await mkdir(out, { recursive: true });
+  const htmlPath = join(out, 'article.html');
+  const payloadPath = join(out, 'draft-payload.json');
+  const manifestPath = join(out, 'publish-manifest.json');
+  let renderDoc = state.doc;
+  let html = renderHtml(renderDoc);
+  const payload = {
+    title: state.doc.title,
+    author: option('author', ''),
+    digest: option('digest', state.doc.subtitle || ''),
+    content: html,
+    content_source_url: option('source', '')
+  };
+  const endpoint = option('api-url', process.env.WECHAT_DRAFT_API_URL || ((process.env.WECHAT_ACCESS_TOKEN || (process.env.WECHAT_APP_ID && process.env.WECHAT_APP_SECRET)) ? 'https://api.weixin.qq.com/cgi-bin/draft/add' : undefined));
+  const token = endpoint ? await resolveWechatAccessToken() : null;
+  let delivery = { mode: 'local-bundle', status: 'ready' };
+  if (endpoint && token) {
+    if (endpoint.includes('api.weixin.qq.com') && renderDoc.blocks.some(block => block.type === 'image')) {
+      renderDoc = clone(state.doc);
+      for (const asset of renderDoc.assets) {
+        if (!renderDoc.blocks.some(block => block.type === 'image' && block.assetId === asset.id)) continue;
+        asset.dataUrl = await uploadWechatArticleImage(asset, token);
+      }
+      html = renderHtml(renderDoc);
+    }
+    payload.content = html;
+    await writeFile(htmlPath, html, 'utf8');
+    await writeFile(payloadPath, JSON.stringify({ articles: [payload] }, null, 2), 'utf8');
+    const joiner = endpoint.includes('?') ? '&' : '?';
+    const response = await fetch(`${endpoint}${joiner}access_token=${encodeURIComponent(token)}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ articles: [payload] }) });
+    const responseText = await response.text();
+    delivery = { mode: 'wechat-api', status: response.ok ? 'submitted' : 'failed', httpStatus: response.status, response: responseText.slice(0, 500) };
+    if (!response.ok) throw new Error(`微信草稿接口返回 ${response.status}`);
+  } else if (endpoint && !token) {
+    delivery = { mode: 'local-bundle', status: 'ready', warning: '已生成草稿包；未检测到 WECHAT_ACCESS_TOKEN，未调用远程接口' };
+  }
+  await writeFile(htmlPath, html, 'utf8');
+  await writeFile(payloadPath, JSON.stringify({ articles: [payload] }, null, 2), 'utf8');
+  const manifest = { generatedAt: new Date().toISOString(), revision: state.doc.meta.revision, theme: state.doc.theme || 'minimal', htmlPath, payloadPath, delivery };
+  await writeFile(manifestPath, JSON.stringify(manifest, null, 2), 'utf8');
+  return manifest;
 }
 const output = value => console.log(JSON.stringify(value, null, 2));
 try {
@@ -72,7 +133,9 @@ try {
   else if (command === 'import') output(await importFromInput());
   else if (command === 'guidance') { const state = await loadState(); output({ guidance: getLayoutGuidance(state.doc), warnings: state.doc.meta.importWarnings || [] }); }
   else if (command === 'text') output(await applyIntent(parseCommand(option('text', args.join(' '))), '文字指令'));
+  else if (command === 'humanize') output(await applyIntent({ type: 'humanize', mode: option('mode', 'natural') === 'conservative' ? 'conservative' : 'natural' }, '去 AI 味'));
   else if (command === 'intent') output(await applyIntent(JSON.parse(option('json', '{}')), '结构化指令'));
   else if (command === 'export') { const state = await loadState(); const out = resolve(option('out', `wechat-layout-${state.doc.meta.revision}.html`)); await writeFile(out, renderHtml(state.doc), 'utf8'); output({ out, revision: state.doc.meta.revision }); }
-  else console.log('公众号排版 CLI\n\ninit\nimport --article article.md --images ./images\nimport --text "文章内容" --image cover.png\nguidance\nstate\ntext --text "标题：文章标题"\nintent --json \'{"type":"appendBlock","blockType":"paragraph","text":"正文"}\'\nexport --out article.html');
+  else if (command === 'publish') output(await publishFromState());
+  else console.log('公众号排版 CLI\n\ninit\nimport --article article.md --images ./images\nimport --text "文章内容" --image cover.png\nguidance\nstate\ntext --text "标题：文章标题"\nhumanize --mode natural\nintent --json \'{"type":"appendBlock","blockType":"paragraph","text":"正文"}\'\nexport --out article.html\npublish --out .local-data/publish/revision-1');
 } catch (error) { console.error(error.message); process.exitCode = 1; }
