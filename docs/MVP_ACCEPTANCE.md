@@ -20,9 +20,17 @@
 | 回滚 / 重做 | PASS | VersionStore |
 | 最大回滚历史 | PASS | 50 snapshots |
 | 本地持久化 | PASS | localStorage |
-| 导入 / 导出 | PASS | JSON + HTML |
-| 微信交付包 | PASS | `publish` 生成 HTML、草稿 payload、manifest；可选远程接口 |
-| 自动测试 | PASS | Node test 10/10 |
+| 导入 / 导出 | PASS | 文章+图片导入；JSON 备份/恢复；微信 HTML |
+| 微信交付包 | PASS | GUI/CLI 生成 HTML、草稿 payload、manifest；配置凭据后可选远程接口 |
+| 微信兼容 inline HTML | PASS | 草稿 HTML 不含 `<style>`，组件样式写入 inline `style` |
+| 首图封面素材 | PASS | 远程草稿提交时首图上传永久素材并写入 `thumb_media_id` |
+| 草稿箱导出入口 | PASS | GUI 检查本地授权配置，未配置时生成本地草稿包 |
+| 草稿提交确认 | PASS | GUI、服务端、MCP/CLI 均要求显式确认；成功后提示人工审核发送 |
+| 扫码适配器二维码显示 | PASS | `WECHAT_QR_AUTH_URL` / `WECHAT_QR_IMAGE_URL` 配置后 GUI 显示授权入口或二维码图片 |
+| 本机授权持久化 | PASS | 适配器 POST `/api/wechat/auth/callback` 后写入 `.local-data/wechat-auth.json`，重启自动复用 |
+| 授权后自动创建草稿 | PASS | GUI 确认“授权后自动上传草稿”后，授权状态变为成功即调用图片上传与 `draft/add` |
+| 人工审核边界 | PASS | 返回 `draftId` 与 `reviewRequired`，不自动群发 |
+| 自动测试 | PASS | Node test 13/13 |
 
 ## Frozen outside v0.1
 

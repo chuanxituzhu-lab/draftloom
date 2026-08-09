@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, join, resolve } from 'node:path';
 import { createInitialDocument, parseCommand, reduceDocument, stamp, clone, importArticle, getLayoutGuidance, renderArticleHtml } from '../src/core.js';
@@ -59,14 +59,32 @@ function dataUrlParts(dataUrl = '') {
   const match = String(dataUrl).match(/^data:([^;]+);base64,([\s\S]+)$/);
   return match ? { type: match[1], bytes: Buffer.from(match[2], 'base64') } : null;
 }
+function readPersistedAuth() {
+  try {
+    const saved = JSON.parse(readFileSync(resolve('.local-data/wechat-auth.json'), 'utf8'));
+    return saved?.access_token && (!saved.expires_at || Date.parse(saved.expires_at) > Date.now() + 30_000) ? saved : null;
+  } catch { return null; }
+}
 async function resolveWechatAccessToken() {
-  if (process.env.WECHAT_ACCESS_TOKEN) return process.env.WECHAT_ACCESS_TOKEN;
-  if (!process.env.WECHAT_APP_ID || !process.env.WECHAT_APP_SECRET) return null;
-  const url = `https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid=${encodeURIComponent(process.env.WECHAT_APP_ID)}&secret=${encodeURIComponent(process.env.WECHAT_APP_SECRET)}`;
+  if (process.env.WECHAT_ACCESS_TOKEN || process.env.WX_ACCESS_TOKEN) return process.env.WECHAT_ACCESS_TOKEN || process.env.WX_ACCESS_TOKEN;
+  const saved = readPersistedAuth();
+  if (saved) return saved.access_token;
+  const appId = process.env.WECHAT_APP_ID || process.env.WX_APPID;
+  const appSecret = process.env.WECHAT_APP_SECRET || process.env.WX_APPSECRET;
+  if (!appId || !appSecret) return null;
+  const url = `https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid=${encodeURIComponent(appId)}&secret=${encodeURIComponent(appSecret)}`;
   const response = await fetch(url);
   const body = await response.json();
   if (!response.ok || !body.access_token) throw new Error(`获取微信 access_token 失败：${body.errmsg || response.status}`);
   return body.access_token;
+}
+function wechatDraftStatus() {
+  const persisted = Boolean(readPersistedAuth());
+  const hasToken = Boolean(process.env.WECHAT_ACCESS_TOKEN || process.env.WX_ACCESS_TOKEN) || persisted;
+  const hasAppCredentials = Boolean((process.env.WECHAT_APP_ID || process.env.WX_APPID) && (process.env.WECHAT_APP_SECRET || process.env.WX_APPSECRET));
+  const qrAuthUrl = process.env.WECHAT_QR_AUTH_URL || null;
+  const qrImageUrl = process.env.WECHAT_QR_IMAGE_URL || null;
+  return { remoteReady: hasToken || hasAppCredentials, authorized: hasToken, persisted, qrAuthorization: Boolean(qrAuthUrl || qrImageUrl), qrAuthUrl, qrImageUrl, mode: hasToken || hasAppCredentials ? 'wechat-api' : 'local-bundle', message: '授权凭据保存在本机 .local-data；二维码由授权适配器提供。' };
 }
 async function uploadWechatArticleImage(asset, token) {
   const parts = dataUrlParts(asset.dataUrl);
@@ -81,7 +99,20 @@ async function uploadWechatArticleImage(asset, token) {
   if (!response.ok || !body.url) throw new Error(`上传微信图文图片失败：${body.errmsg || response.status}`);
   return body.url;
 }
-async function publishFromState() {
+async function uploadWechatCover(asset, token) {
+  const parts = dataUrlParts(asset?.dataUrl);
+  if (!parts) throw new Error(`封面 ${asset?.name || '未命名'} 不是可上传的本地 Data URL`);
+  if (!['image/png', 'image/jpeg', 'image/jpg'].includes(parts.type)) throw new Error(`微信封面暂不支持 ${parts.type}：${asset.name}`);
+  const form = new FormData();
+  form.append('media', new Blob([parts.bytes], { type: parts.type }), asset.name || 'cover.jpg');
+  const endpoint = process.env.WECHAT_COVER_UPLOAD_URL || 'https://api.weixin.qq.com/cgi-bin/material/add_material';
+  const joiner = endpoint.includes('?') ? '&' : '?';
+  const response = await fetch(`${endpoint}${joiner}type=image&access_token=${encodeURIComponent(token)}`, { method: 'POST', body: form });
+  const body = await response.json();
+  if (!response.ok || !body.media_id || Number(body.errcode || 0) !== 0) throw new Error(`上传微信封面失败：${body.errmsg || response.status}`);
+  return body.media_id;
+}
+async function publishFromState({ allowRemote = false } = {}) {
   const state = await loadState();
   const out = resolve(option('out', join('.local-data', 'publish', `revision-${state.doc.meta.revision}`)));
   await mkdir(out, { recursive: true });
@@ -97,26 +128,37 @@ async function publishFromState() {
     content: html,
     content_source_url: option('source', '')
   };
-  const endpoint = option('api-url', process.env.WECHAT_DRAFT_API_URL || ((process.env.WECHAT_ACCESS_TOKEN || (process.env.WECHAT_APP_ID && process.env.WECHAT_APP_SECRET)) ? 'https://api.weixin.qq.com/cgi-bin/draft/add' : undefined));
+  const endpoint = allowRemote ? option('api-url', process.env.WECHAT_DRAFT_API_URL || ((process.env.WECHAT_ACCESS_TOKEN || process.env.WX_ACCESS_TOKEN || readPersistedAuth()?.access_token || ((process.env.WECHAT_APP_ID || process.env.WX_APPID) && (process.env.WECHAT_APP_SECRET || process.env.WX_APPSECRET))) ? 'https://api.weixin.qq.com/cgi-bin/draft/add' : undefined)) : undefined;
   const token = endpoint ? await resolveWechatAccessToken() : null;
   let delivery = { mode: 'local-bundle', status: 'ready' };
   if (endpoint && token) {
-    if (endpoint.includes('api.weixin.qq.com') && renderDoc.blocks.some(block => block.type === 'image')) {
+    const officialApi = endpoint.includes('api.weixin.qq.com');
+    let thumbMediaId = option('cover-media-id', process.env.WECHAT_COVER_MEDIA_ID || null);
+    if (officialApi && !thumbMediaId) {
+      const coverBlock = renderDoc.blocks.find(block => block.type === 'image' && renderDoc.assets.some(asset => asset.id === block.assetId));
+      const coverAsset = coverBlock ? renderDoc.assets.find(asset => asset.id === coverBlock.assetId) : null;
+      if (!coverAsset) throw new Error('微信公众号草稿需要封面图：请在文章中插入图片，或设置 WECHAT_COVER_MEDIA_ID');
+      thumbMediaId = await uploadWechatCover(coverAsset, token);
+    }
+    if (officialApi && renderDoc.blocks.some(block => block.type === 'image' || block.type === 'gallery')) {
       renderDoc = clone(state.doc);
       for (const asset of renderDoc.assets) {
-        if (!renderDoc.blocks.some(block => block.type === 'image' && block.assetId === asset.id)) continue;
+        if (!renderDoc.blocks.some(block => block.assetId === asset.id || (block.assetIds || []).includes(asset.id))) continue;
         asset.dataUrl = await uploadWechatArticleImage(asset, token);
       }
       html = renderHtml(renderDoc);
     }
     payload.content = html;
+    if (thumbMediaId) payload.thumb_media_id = thumbMediaId;
     await writeFile(htmlPath, html, 'utf8');
     await writeFile(payloadPath, JSON.stringify({ articles: [payload] }, null, 2), 'utf8');
     const joiner = endpoint.includes('?') ? '&' : '?';
     const response = await fetch(`${endpoint}${joiner}access_token=${encodeURIComponent(token)}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ articles: [payload] }) });
     const responseText = await response.text();
-    delivery = { mode: 'wechat-api', status: response.ok ? 'submitted' : 'failed', httpStatus: response.status, response: responseText.slice(0, 500) };
-    if (!response.ok) throw new Error(`微信草稿接口返回 ${response.status}`);
+    let parsedResponse = null; try { parsedResponse = JSON.parse(responseText); } catch {}
+    const apiFailed = !response.ok || (parsedResponse && Number(parsedResponse.errcode || 0) !== 0);
+    delivery = { mode: 'wechat-api', status: apiFailed ? 'failed' : 'submitted', httpStatus: response.status, draftId: parsedResponse?.media_id || parsedResponse?.draft_id || null, reviewRequired: !apiFailed, nextAction: apiFailed ? null : '请在微信公众号后台人工审核后发送', response: responseText.slice(0, 500) };
+    if (apiFailed) throw new Error(`微信草稿接口失败：${parsedResponse?.errmsg || response.status}`);
   } else if (endpoint && !token) {
     delivery = { mode: 'local-bundle', status: 'ready', warning: '已生成草稿包；未检测到 WECHAT_ACCESS_TOKEN，未调用远程接口' };
   }
@@ -132,10 +174,12 @@ try {
   else if (command === 'state') output(await loadState());
   else if (command === 'import') output(await importFromInput());
   else if (command === 'guidance') { const state = await loadState(); output({ guidance: getLayoutGuidance(state.doc), warnings: state.doc.meta.importWarnings || [] }); }
+  else if (command === 'draft-status') output(wechatDraftStatus());
   else if (command === 'text') output(await applyIntent(parseCommand(option('text', args.join(' '))), '文字指令'));
   else if (command === 'humanize') output(await applyIntent({ type: 'humanize', mode: option('mode', 'natural') === 'conservative' ? 'conservative' : 'natural' }, '去 AI 味'));
   else if (command === 'intent') output(await applyIntent(JSON.parse(option('json', '{}')), '结构化指令'));
   else if (command === 'export') { const state = await loadState(); const out = resolve(option('out', `wechat-layout-${state.doc.meta.revision}.html`)); await writeFile(out, renderHtml(state.doc), 'utf8'); output({ out, revision: state.doc.meta.revision }); }
   else if (command === 'publish') output(await publishFromState());
-  else console.log('公众号排版 CLI\n\ninit\nimport --article article.md --images ./images\nimport --text "文章内容" --image cover.png\nguidance\nstate\ntext --text "标题：文章标题"\nhumanize --mode natural\nintent --json \'{"type":"appendBlock","blockType":"paragraph","text":"正文"}\'\nexport --out article.html\npublish --out .local-data/publish/revision-1');
+  else if (command === 'draft-submit') { if (option('confirm') !== 'true') throw new Error('提交草稿箱前必须显式传入 --confirm true'); output(await publishFromState({ allowRemote: true })); }
+  else console.log('公众号排版 CLI\n\ninit\nimport --article article.md --images ./images\nimport --text "文章内容" --image cover.png\nguidance\nstate\ndraft-status\ndraft-submit --confirm true\ntext --text "标题：文章标题"\nhumanize --mode natural\nintent --json \'{"type":"appendBlock","blockType":"paragraph","text":"正文"}\'\nexport --out article.html\npublish --out .local-data/publish/revision-1');
 } catch (error) { console.error(error.message); process.exitCode = 1; }
