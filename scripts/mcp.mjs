@@ -10,8 +10,10 @@ const tools = [
   { name: 'publishing_import', description: '导入文章文件和本地图片并自动生成排版结构', inputSchema: { type: 'object', properties: { articlePath: { type: 'string' }, text: { type: 'string' }, images: { type: 'array', items: { type: 'string' } } } } },
   { name: 'publishing_guidance', description: '读取当前文章的人工排版指导建议', inputSchema: { type: 'object', properties: {} } },
   { name: 'publishing_apply_text', description: '应用中文自然语言排版指令', inputSchema: { type: 'object', required: ['text'], properties: { text: { type: 'string' } } } },
+  { name: 'publishing_humanize', description: '以自然化或保守模式处理文章文字，保留原稿以便回滚', inputSchema: { type: 'object', properties: { mode: { type: 'string', enum: ['natural', 'conservative'] } } } },
   { name: 'publishing_apply_intent', description: '应用结构化公众号排版 Intent', inputSchema: { type: 'object', required: ['intent'], properties: { intent: { type: 'object' } } } },
-  { name: 'publishing_export', description: '导出公众号 HTML', inputSchema: { type: 'object', required: ['out'], properties: { out: { type: 'string' } } } }
+  { name: 'publishing_export', description: '导出公众号 HTML', inputSchema: { type: 'object', required: ['out'], properties: { out: { type: 'string' } } } },
+  { name: 'publishing_publish', description: '生成微信兼容 HTML 与草稿 payload；配置凭据后可提交远程草稿接口', inputSchema: { type: 'object', properties: { out: { type: 'string' }, apiUrl: { type: 'string' } } } }
 ];
 const response = (id, value) => ({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(value, null, 2) }] } });
 const failure = (id, message) => ({ jsonrpc: '2.0', id, error: { code: -32000, message } });
@@ -27,8 +29,15 @@ function callTool(name, input) {
   }
   if (name === 'publishing_guidance') return JSON.parse(execFileSync(process.execPath, [cli, 'guidance', ...dataArgs], { encoding: 'utf8' }));
   if (name === 'publishing_apply_text') return JSON.parse(execFileSync(process.execPath, [cli, 'text', '--text', input.text, ...dataArgs], { encoding: 'utf8' }));
+  if (name === 'publishing_humanize') return JSON.parse(execFileSync(process.execPath, [cli, 'humanize', '--mode', input.mode === 'conservative' ? 'conservative' : 'natural', ...dataArgs], { encoding: 'utf8' }));
   if (name === 'publishing_apply_intent') return JSON.parse(execFileSync(process.execPath, [cli, 'intent', '--json', JSON.stringify(input.intent), ...dataArgs], { encoding: 'utf8' }));
   if (name === 'publishing_export') return JSON.parse(execFileSync(process.execPath, [cli, 'export', '--out', input.out, ...dataArgs], { encoding: 'utf8' }));
+  if (name === 'publishing_publish') {
+    const args = [cli, 'publish', ...dataArgs];
+    if (input.out) args.push('--out', input.out);
+    if (input.apiUrl) args.push('--api-url', input.apiUrl);
+    return JSON.parse(execFileSync(process.execPath, args, { encoding: 'utf8' }));
+  }
   throw new Error(`Unknown tool: ${name}`);
 }
 const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });

@@ -15,18 +15,22 @@
       Document Reducer
      reduceDocument()
             │
-       ┌────┴────┐
-       ▼         ▼
- VersionStore   Persist
- seq+timestamp  localStorage
+       ┌────┴──────────┐
+       ▼               ▼
+ VersionStore      Persist
+ seq+timestamp     localStorage/CLI
        │
        ▼
  Single Document State + Original
        │
- ┌─────┼──────────┐
- ▼     ▼          ▼
-Guidance Editor  WeChat Preview
-GUI     GUI       zoom-only
+ ┌─────┼──────────────┬───────────┐
+ ▼     ▼              ▼           ▼
+Guidance Humanizer  Theme      Preview
+GUI     local reducer 3 packs   zoom-only
+       │
+       ▼
+ Delivery Adapter
+ HTML + payload + optional API
 ```
 
-原则：文档状态是唯一内容事实源，`original` 保存导入原稿，`working copy` 经过 reducer 修改。预览缩放属于 View State，不进入文档状态，因此不会造成内容版本变化。未匹配或未引用图片不会静默丢弃，而是转为提示或追加到文章末尾，交给人工确认。
+原则：文档状态是唯一内容事实源，`original` 保存导入原稿，`working copy` 经过 reducer 修改。预览缩放属于 View State，不进入文档状态，因此不会造成内容版本变化。未匹配或未引用图片不会静默丢弃，而是转为提示或追加到文章末尾，交给人工确认。交付默认生成本地包，远程接口只有显式配置凭据后才调用。

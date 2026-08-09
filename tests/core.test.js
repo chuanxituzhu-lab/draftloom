@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createInitialDocument, parseCommand, reduceDocument, VersionStore, importArticle, getLayoutGuidance } from '../src/core.js';
+import { createInitialDocument, parseCommand, reduceDocument, VersionStore, importArticle, getLayoutGuidance, humanizeText, renderArticleHtml } from '../src/core.js';
 
 test('parseCommand handles title and content commands', () => {
   assert.deepEqual(parseCommand('标题：新的标题'), { type:'setTitle', text:'新的标题' });
@@ -65,4 +65,34 @@ test('layout guidance flags long text for human review', () => {
   const doc = importArticle({ text: `文章标题\n\n${'很长的正文。'.repeat(50)}` });
   const guidance = getLayoutGuidance(doc);
   assert.equal(guidance.some(item => item.text.includes('长段落')), true);
+});
+
+test('natural language supports component creation and conversion', () => {
+  assert.deepEqual(parseCommand('添加列表：甲；乙'), { type: 'appendBlock', blockType: 'list', text: '甲；乙', items: ['甲', '乙'], ordered: false });
+  assert.equal(parseCommand('添加表格：A|B\n1|2').blockType, 'table');
+  assert.deepEqual(parseCommand('把当前改成引用'), { type: 'convertSelected', blockType: 'quote', text: undefined });
+  assert.equal(parseCommand('第 3 段改成标题：关键结论').index, 2);
+  assert.deepEqual(parseCommand('主题：杂志'), { type: 'setTheme', theme: 'editorial' });
+  assert.deepEqual(parseCommand('去 AI 味：保守'), { type: 'humanize', mode: 'conservative' });
+});
+
+test('import creates list, table and CTA semantic blocks', () => {
+  const doc = importArticle({ text: '# 标题\n\n- 甲\n- 乙\n\n|列A|列B|\n|---|---|\n|值1|值2|\n\n:::cta\ntext: 继续阅读\nbutton: 打开\n:::' });
+  assert.deepEqual(doc.blocks.map(block => block.type), ['list', 'table', 'cta']);
+  assert.deepEqual(doc.blocks[0].items, ['甲', '乙']);
+  assert.deepEqual(doc.blocks[1].headers, ['列A', '列B']);
+  assert.equal(doc.blocks[2].buttonText, '打开');
+});
+
+test('humanizer and split intents preserve a reversible document shape', () => {
+  let doc = createInitialDocument();
+  const paragraphId = doc.blocks[1].id;
+  doc = reduceDocument(doc, { type: 'updateBlock', id: paragraphId, text: '众所周知，我们可以看到很多内容。第二句也应该保留。' }).doc;
+  const natural = reduceDocument(doc, { type: 'humanize', mode: 'natural' });
+  assert.equal(natural.doc.blocks[1].text.includes('众所周知'), false);
+  const split = reduceDocument(natural.doc, { type: 'splitSelected' }, paragraphId);
+  assert.equal(split.changed, true);
+  assert.equal(split.doc.blocks.filter(block => block.type === 'paragraph').length >= 2, true);
+  assert.match(renderArticleHtml({ ...split.doc, theme: 'fresh' }), /theme|wechat-article/);
+  assert.equal(humanizeText('  文本  ', 'conservative'), '文本');
 });
