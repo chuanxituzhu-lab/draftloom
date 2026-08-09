@@ -1,4 +1,4 @@
-import { createInitialDocument, parseCommand, reduceDocument, VersionStore } from './core.js';
+import { createInitialDocument, parseCommand, reduceDocument, VersionStore, importArticle, getLayoutGuidance } from './core.js';
 
 const STORAGE_KEY = 'wechat-layout-mvp:v0.1';
 let doc = loadDocument() || createInitialDocument();
@@ -39,7 +39,9 @@ function render() {
       <div><strong>公众号排版</strong><span class="badge">MVP v0.1</span></div>
       <div class="top-actions">
         <button id="undoBtn">↶ 回滚</button><button id="redoBtn">↷ 重做</button>
-        <button id="exportBtn">导出 JSON</button><label class="button">导入 JSON<input id="importInput" type="file" accept="application/json" hidden></label>
+        <button id="exportBtn">导出 JSON</button><button id="exportHtmlBtn">导出 HTML</button>
+        <label class="button">导入 JSON<input id="importInput" type="file" accept="application/json" hidden></label>
+        <label class="button primary-button">导入文章+图片<input id="articleImportInput" type="file" accept=".md,.markdown,.txt,text/plain,image/*" multiple hidden></label>
       </div>
     </header>
     <main class="workspace">
@@ -51,7 +53,9 @@ function render() {
         <section><h3>版本记录</h3><div class="versions">${store.list().slice(-8).reverse().map(v=>`<div><b>#${v.seq}</b><span>${esc(v.label)}</span><time>${new Date(v.ts).toLocaleTimeString()}</time></div>`).join('')}</div></section>
       </aside>
       <section class="panel editor-panel">
+        <div id="importDrop" class="import-drop"><strong>拖入文章或图片，自动排版</strong><span>支持 Markdown / TXT 与多张本地图片；导入后可继续人工调整</span></div>
         <div class="command-box"><div class="command-label">文字指令</div><div class="command-row"><input id="commandInput" placeholder="如：添加标题：今天的思考 / 上移当前 / 删除当前"><button id="runCommand">执行</button></div><div class="hint">未识别的文字会作为新段落加入文章。</div></div>
+        <div class="guidance-box"><div class="command-label">自动排版指导</div><div id="guidanceList">${renderGuidance()}</div></div>
         <div class="title-editor"><input id="titleInput" value="${esc(doc.title)}" aria-label="标题"><input id="subtitleInput" value="${esc(doc.subtitle)}" aria-label="副标题"></div>
         <div class="blocks">${doc.blocks.map(renderEditorBlock).join('')}</div>
         <div class="insert-row"><button data-add="heading">+ 标题</button><button data-add="paragraph">+ 段落</button><button data-add="quote">+ 引用</button></div>
@@ -84,6 +88,14 @@ function renderPreview() {
   }).join('')}`;
 }
 
+function renderGuidance() {
+  return getLayoutGuidance(doc).map(item => {
+    const icon = item.level === 'ok' ? '✓' : item.level === 'error' ? '!' : '•';
+    const action = item.command ? `<button class="guidance-action" data-guidance="${esc(item.command)}">带入指令</button>` : '';
+    return `<div class="guidance-item guidance-${item.level}"><span>${icon}</span><p>${esc(item.text)}</p>${action}</div>`;
+  }).join('');
+}
+
 function bindEvents() {
   document.querySelectorAll('[data-select]').forEach(el=>el.onclick=()=>{selectedId=el.dataset.select; render();});
   document.querySelectorAll('[data-block]').forEach(el=>el.onclick=(e)=>{ if(!e.target.closest('button')){selectedId=el.dataset.block; document.querySelectorAll('.block').forEach(x=>x.classList.toggle('selected',x.dataset.block===selectedId));}});
@@ -106,7 +118,15 @@ function bindEvents() {
   document.querySelector('#zoomOut').onclick=()=>setZoom(zoom-.1); document.querySelector('#zoomIn').onclick=()=>setZoom(zoom+.1); document.querySelector('#zoomReset').onclick=()=>setZoom(1);
   document.querySelector('#assetInput').onchange=handleAssets;
   document.querySelector('#exportBtn').onclick=exportJson;
+  document.querySelector('#exportHtmlBtn').onclick=exportHtml;
   document.querySelector('#importInput').onchange=importJson;
+  document.querySelector('#articleImportInput').onchange=e=>handleArticleImport(e.target.files);
+  const drop = document.querySelector('#importDrop');
+  drop.onclick=()=>document.querySelector('#articleImportInput').click();
+  drop.ondragover=e=>{e.preventDefault();drop.classList.add('dragging');};
+  drop.ondragleave=()=>drop.classList.remove('dragging');
+  drop.ondrop=e=>{e.preventDefault();drop.classList.remove('dragging');const files=e.dataTransfer.files;if(files.length)handleArticleImport(files);else{const text=e.dataTransfer.getData('text/plain');if(text)handleArticleImport([],text);}};
+  document.querySelectorAll('[data-guidance]').forEach(el=>el.onclick=()=>{const input=document.querySelector('#commandInput');input.value=el.dataset.guidance;input.focus();});
 }
 function setZoom(v){ zoom=Math.min(1.4,Math.max(.6,Math.round(v*10)/10)); const article=document.querySelector('.wechat-article'); article.style.transform=`scale(${zoom})`; document.querySelector('#zoomText').textContent=`${Math.round(zoom*100)}%`; }
 async function handleAssets(e){
@@ -117,13 +137,31 @@ async function handleAssets(e){
 }
 function fileToDataUrl(file){return new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=reject;r.readAsDataURL(file);});}
 function exportJson(){ const blob=new Blob([JSON.stringify(doc,null,2)],{type:'application/json'}); const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`wechat-layout-${doc.meta.revision}.json`;a.click();URL.revokeObjectURL(a.href);setStatus('已导出 JSON'); }
+function exportHtml(){ const html=`<!doctype html><meta charset="utf-8"><title>${esc(doc.title)}</title><article style="max-width:677px;margin:auto;padding:24px 18px;font-family:system-ui,'PingFang SC','Microsoft YaHei',sans-serif">${renderPreview()}</article>`; const blob=new Blob([html],{type:'text/html;charset=utf-8'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`wechat-layout-${doc.meta.revision}.html`;a.click();URL.revokeObjectURL(a.href);setStatus('已导出 HTML'); }
 async function importJson(e){ const file=e.target.files?.[0]; if(!file)return; try{const incoming=JSON.parse(await file.text()); validateDocument(incoming); doc=store.commit(incoming,'导入文档');selectedId=doc.blocks[0]?.id||null;persist();render();setStatus('导入成功');}catch(err){setStatus(`导入失败：${err.message}`);} }
+async function handleArticleImport(fileList=[], pastedText=''){
+  try {
+    const files=[...fileList];
+    const articleFile=files.find(file=>/\.(md|markdown|txt)$/i.test(file.name)||file.type.startsWith('text/'));
+    const imageFiles=files.filter(file=>file.type.startsWith('image/')||/\.(png|jpe?g|webp|gif|svg)$/i.test(file.name));
+    const text=articleFile?await articleFile.text():pastedText;
+    if(!text&&!imageFiles.length) throw new Error('没有找到文章文字或图片');
+    const assets=await Promise.all(imageFiles.map(async file=>({id:crypto.randomUUID(),name:file.name,type:file.type||'image/png',size:file.size,dataUrl:await fileToDataUrl(file),alt:file.name.replace(/\.[^.]+$/,'')})));
+    const incoming=importArticle({text,filename:articleFile?.name||'pasted-article.txt',assets});
+    if(commit({type:'replaceDocument',doc:incoming},`自动排版导入：${articleFile?.name||`${assets.length} 张图片`}`)){
+      const warnings=incoming.meta.importWarnings||[];
+      setStatus(warnings.length?`导入完成，${warnings.length} 条提示`:'导入完成，可继续人工指导编辑');
+    }
+  } catch(err) { setStatus(`导入失败：${err.message}`); }
+}
 function validateDocument(v){if(!v||typeof v.title!=='string'||!Array.isArray(v.blocks)||!Array.isArray(v.assets)||!v.meta)throw new Error('文档格式不正确');}
 
 window.wechatLayoutHarness = {
   getState: () => structuredClone(doc),
   applyIntent: (intent, label='Harness 编辑') => commit(intent, label),
   applyText: (text) => commit(parseCommand(text), `Harness：${text.slice(0,24)}`),
+  importArticle: ({text,filename='pasted-article.txt',assets=[]}) => { const incoming=importArticle({text,filename,assets}); const changed=commit({type:'replaceDocument',doc:incoming},`Harness 导入：${filename}`); return changed ? {doc:structuredClone(doc),guidance:getLayoutGuidance(doc)} : null; },
+  getLayoutGuidance: () => getLayoutGuidance(doc),
   addImage: ({name,type='image/png',dataUrl,alt=''}) => commit({type:'addAsset',asset:{id:crypto.randomUUID(),name,type,size:0,dataUrl,alt:alt||name}}, `Harness 素材：${name}`),
   selectBlock: (id) => { if(doc.blocks.some(b=>b.id===id)){selectedId=id;render();return true;} return false; },
   undo: () => { doc=store.undo(doc);persist();render();return structuredClone(doc); },

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createInitialDocument, parseCommand, reduceDocument, VersionStore } from '../src/core.js';
+import { createInitialDocument, parseCommand, reduceDocument, VersionStore, importArticle, getLayoutGuidance } from '../src/core.js';
 
 test('parseCommand handles title and content commands', () => {
   assert.deepEqual(parseCommand('标题：新的标题'), { type:'setTitle', text:'新的标题' });
@@ -45,4 +45,24 @@ test('asset can be inserted into document by id', () => {
   const result = reduceDocument(doc,{type:'insertAsset',assetId:'a1'});
   assert.equal(result.doc.blocks.at(-1).type,'image');
   assert.equal(result.doc.blocks.at(-1).assetId,'a1');
+});
+
+test('article import creates semantic blocks and matches referenced images', () => {
+  const cover = { id:'cover-1', name:'cover.png', type:'image/png', size:1, dataUrl:'data:image/png;base64,AA==', alt:'封面' };
+  const doc = importArticle({
+    filename: 'article.md',
+    text: '# 自动排版标题\n\n## 第一节\n\n这是正文。\n\n![封面](cover.png)\n\n> 一句引用。',
+    assets: [cover]
+  });
+  assert.equal(doc.title, '自动排版标题');
+  assert.equal(doc.original.filename, 'article.md');
+  assert.deepEqual(doc.blocks.map(block => block.type), ['heading', 'paragraph', 'image', 'quote']);
+  assert.equal(doc.blocks[2].assetId, 'cover-1');
+  assert.equal(doc.meta.importWarnings.length, 0);
+});
+
+test('layout guidance flags long text for human review', () => {
+  const doc = importArticle({ text: `文章标题\n\n${'很长的正文。'.repeat(50)}` });
+  const guidance = getLayoutGuidance(doc);
+  assert.equal(guidance.some(item => item.text.includes('长段落')), true);
 });

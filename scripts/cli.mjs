@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
-import { createInitialDocument, parseCommand, reduceDocument, stamp, clone } from '../src/core.js';
+import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { basename, dirname, extname, join, resolve } from 'node:path';
+import { createInitialDocument, parseCommand, reduceDocument, stamp, clone, importArticle, getLayoutGuidance } from '../src/core.js';
 
 const args = process.argv.slice(2);
 const command = args.shift();
 const option = (name, fallback = undefined) => { const index = args.indexOf(`--${name}`); return index >= 0 ? args[index + 1] : fallback; };
+const optionAll = name => args.reduce((values, value, index) => value === `--${name}` && args[index + 1] ? [...values, args[index + 1]] : values, []);
 const dataFile = resolve(option('data', process.env.WECHAT_LAYOUT_DATA || '.local-data/document.json'));
 
 async function loadState() {
@@ -17,6 +18,7 @@ async function loadState() {
   return JSON.parse(await readFile(dataFile, 'utf8'));
 }
 async function saveState(state) { await mkdir(dirname(dataFile), { recursive: true }); await writeFile(dataFile, JSON.stringify(state, null, 2), 'utf8'); return state; }
+function stateFromDocument(doc) { return { doc, selectedId: doc.blocks[0]?.id || null, history: [{ seq: 1, ts: doc.meta.updatedAt, label: '导入文章', doc: clone(doc) }], future: [] }; }
 async function applyIntent(intent, label) {
   const state = await loadState();
   const result = reduceDocument(state.doc, intent, state.selectedId);
@@ -25,6 +27,32 @@ async function applyIntent(intent, label) {
   state.doc = next; state.selectedId = result.selectedId;
   state.history = [...(state.history || []), { seq: next.meta.revision, ts: next.meta.updatedAt, label, doc: clone(next) }].slice(-50); state.future = [];
   await saveState(state); return { ...state, changed: true };
+}
+const imageTypes = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.svg': 'image/svg+xml' };
+async function assetFromFile(filePath) {
+  const data = await readFile(filePath);
+  const type = imageTypes[extname(filePath).toLowerCase()] || 'application/octet-stream';
+  return { name: basename(filePath), type, size: data.length, dataUrl: `data:${type};base64,${data.toString('base64')}`, alt: basename(filePath, extname(filePath)) };
+}
+async function collectImagePaths() {
+  const paths = [...optionAll('image')];
+  const folder = option('images');
+  if (folder && existsSync(resolve(folder))) {
+    const entries = await readdir(resolve(folder), { withFileTypes: true });
+    paths.push(...entries.filter(entry => entry.isFile() && imageTypes[extname(entry.name).toLowerCase()]).map(entry => join(resolve(folder), entry.name)));
+  }
+  return [...new Set(paths.map(path => resolve(path)))];
+}
+async function importFromInput() {
+  const articlePath = option('article', option('file'));
+  const inlineText = option('text');
+  if (!articlePath && inlineText === undefined) throw new Error('请提供 --article <文章文件> 或 --text <文章内容>');
+  const text = inlineText !== undefined ? inlineText : await readFile(resolve(articlePath), 'utf8');
+  const assets = await Promise.all((await collectImagePaths()).map(assetFromFile));
+  const doc = importArticle({ text, filename: articlePath ? basename(articlePath) : 'pasted-article.txt', assets });
+  const state = stateFromDocument(doc);
+  await saveState(state);
+  return { ...state, guidance: getLayoutGuidance(doc), warnings: doc.meta.importWarnings || [] };
 }
 const escapeHtml = (value = '') => String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 function renderHtml(doc) {
@@ -41,8 +69,10 @@ const output = value => console.log(JSON.stringify(value, null, 2));
 try {
   if (command === 'init') output(await saveState(await loadState()));
   else if (command === 'state') output(await loadState());
+  else if (command === 'import') output(await importFromInput());
+  else if (command === 'guidance') { const state = await loadState(); output({ guidance: getLayoutGuidance(state.doc), warnings: state.doc.meta.importWarnings || [] }); }
   else if (command === 'text') output(await applyIntent(parseCommand(option('text', args.join(' '))), '文字指令'));
   else if (command === 'intent') output(await applyIntent(JSON.parse(option('json', '{}')), '结构化指令'));
   else if (command === 'export') { const state = await loadState(); const out = resolve(option('out', `wechat-layout-${state.doc.meta.revision}.html`)); await writeFile(out, renderHtml(state.doc), 'utf8'); output({ out, revision: state.doc.meta.revision }); }
-  else console.log('公众号排版 CLI\n\ninit\nstate\ntext --text "标题：文章标题"\nintent --json \'{"type":"appendBlock","blockType":"paragraph","text":"正文"}\'\nexport --out article.html');
+  else console.log('公众号排版 CLI\n\ninit\nimport --article article.md --images ./images\nimport --text "文章内容" --image cover.png\nguidance\nstate\ntext --text "标题：文章标题"\nintent --json \'{"type":"appendBlock","blockType":"paragraph","text":"正文"}\'\nexport --out article.html');
 } catch (error) { console.error(error.message); process.exitCode = 1; }

@@ -4,6 +4,12 @@
   "state_model": "single-document-source-of-truth",
   "view_state_excluded": ["previewZoom", "selection"],
   "events": ["wechat-layout:changed"],
-  "methods": ["getState", "applyText", "applyIntent", "addImage", "selectBlock", "undo", "redo"],
+  "methods": ["getState", "applyText", "applyIntent", "importArticle", "getLayoutGuidance", "addImage", "selectBlock", "undo", "redo"],
+  "import_model": {
+    "text": "Markdown or plain text",
+    "assets": "local image assets as data URLs",
+    "preserves_original": true,
+    "unmatched_images": "append_and_warn"
+  },
   "max_history": 50
 }

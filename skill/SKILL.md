@@ -29,6 +29,7 @@ description: Edit and preview Chinese WeChat Official Account articles with the 
 - `applyText(text)`：提交中文自然语言编辑指令。
 - `applyIntent(intent, label?)`：提交结构化 Intent。
 - `addImage({name,type,dataUrl,alt})`：新图片进入素材库。
+- `importArticle({text,filename,assets})`：导入 Markdown/TXT 与本地图片，自动生成标题、章节、段落、引用和图片块。
 - `selectBlock(id)`：GUI 选择块。
 - `undo()` / `redo()`：版本回滚/重做。
 
@@ -73,8 +74,13 @@ description: Edit and preview Chinese WeChat Official Account articles with the 
 
 ```bash
 npm run cli -- init
+npm run cli -- import --article article.md --images ./images
+npm run cli -- import --text "文章内容" --image ./cover.png
+npm run cli -- guidance
 npm run cli -- text --text "标题：新的文章标题"
 npm run cli -- export --out article.html
 ```
 
-MCP 客户端使用 `npm run mcp`，通过 JSON-RPC stdio 调用 `publishing_state`、`publishing_apply_text`、`publishing_apply_intent` 和 `publishing_export`。状态默认写入 `.local-data/document.json`，也可通过 `WECHAT_LAYOUT_DATA` 指定路径。
+GUI 支持将 Markdown/TXT 与多张图片拖入“导入文章+图片”区域；图片会按 Markdown 引用匹配，未引用图片会追加到文章末尾并给出人工指导。
+
+MCP 客户端使用 `npm run mcp`，通过 JSON-RPC stdio 调用 `publishing_import`、`publishing_guidance`、`publishing_state`、`publishing_apply_text`、`publishing_apply_intent` 和 `publishing_export`。状态默认写入 `.local-data/document.json`，也可通过 `WECHAT_LAYOUT_DATA` 指定路径。
