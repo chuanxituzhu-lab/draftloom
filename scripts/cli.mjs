@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, join, resolve } from 'node:path';
 import { createInitialDocument, parseCommand, reduceDocument, stamp, clone, importArticle, getLayoutGuidance, renderArticleHtml } from '../src/core.js';
+import { draftCoverCopy, renderCoverSvg, auditCoverImage, COVER_SPEC } from '../src/cover.js';
 
 const args = process.argv.slice(2);
 const command = args.shift();
@@ -235,5 +236,35 @@ try {
   else if (command === 'intent') output(await applyIntent(JSON.parse(option('json', '{}')), '结构化指令'));
   else if (command === 'export') { const state = await loadState(); const out = resolve(option('out', `wechat-layout-${state.doc.meta.revision}.html`)); await writeFile(out, renderHtml(state.doc), 'utf8'); output({ out, revision: state.doc.meta.revision }); }
   else if (command === 'publish') output(await publishFromState());
-  else console.log('公众号排版 CLI\n\ninit\nimport --article article.md --images ./images\nimport --text "文章内容" --image cover.png\nguidance\nstate\ntext --text "标题：文章标题"\nhumanize --mode natural\nintent --json \'{"type":"appendBlock","blockType":"paragraph","text":"正文"}\'\nexport --out article.html\npublish --cover cover.jpg --author 作者 --digest 摘要 [--dry-run]\n\n凭据（三选一，优先级从高到低）：\n  WECHAT_ACCESS_TOKEN=...            # 已有 token 直接用\n  WECHAT_APP_ID / WECHAT_APP_SECRET # 自动换取 token\n  WECHAT_DRAFT_API_URL=...          # 指向自有适配层\n publish 说明：--dry-run 只生成本地交付包供人工审核，不上传；\n 去掉 --dry-run 且配好凭据后，上传封面+正文图→写入草稿箱→返回 draft_media_id。\n 仅写草稿箱，永不自动群发/发布，发布由人工在后台完成。');
+  else if (command === 'cover') {
+    // 需求1+2：按公众号规范生成封面 SVG，并按爆款规则草拟封面文案（供人工审核挑选）
+    const state = await loadState();
+    const title = option('title', state.doc.title || '');
+    const bodyText = (state.doc.blocks || []).map(b => b.text || '').join(' ');
+    const copy = draftCoverCopy({ title, body: bodyText, formula: option('formula', null) });
+    const chosen = copy.candidates[0] || { main: title, sub: '' };
+    const out = resolve(option('out', join('.local-data', 'cover')));
+    await mkdir(out, { recursive: true });
+    const headlineSvg = renderCoverSvg({ main: option('main', chosen.main), sub: option('sub', chosen.sub), kind: 'headline', bg: option('bg', '#0f172a'), fg: option('fg', '#ffffff'), accent: option('accent', '#22c55e') });
+    const squareSvg = renderCoverSvg({ main: option('main', chosen.main), sub: '', kind: 'square', bg: option('bg', '#0f172a'), fg: option('fg', '#ffffff'), accent: option('accent', '#22c55e') });
+    const headlinePath = join(out, 'cover-900x383.svg');
+    const squarePath = join(out, 'cover-383x383.svg');
+    await writeFile(headlinePath, headlineSvg, 'utf8');
+    await writeFile(squarePath, squareSvg, 'utf8');
+    // 若指定了自带封面图，做尺寸/大小规范体检
+    let audit = null;
+    const existing = option('audit');
+    if (existing) {
+      const parts = dataUrlParts((await assetFromFile(resolve(existing))).dataUrl);
+      audit = { note: '像素尺寸需在图片软件查看后用 --width/--height 传入；此处只据文件大小体检', bytes: parts ? parts.bytes.length : 0, ...auditCoverImage({ width: Number(option('width', 0)), height: Number(option('height', 0)), bytes: parts ? parts.bytes.length : 0 }) };
+    }
+    output({
+      spec: COVER_SPEC,
+      headlineSvg: headlinePath, squareSvg: squarePath,
+      copyCandidates: copy.candidates, copyChecks: copy.checks, signals: copy.signals,
+      audit,
+      manual_next: '这是规则草拟的候选封面与文案，请人工挑选/微调后，用 --cover 传入 publish（或先 SVG 转 PNG 再传）'
+    });
+  }
+  else console.log('公众号排版 CLI\n\ninit\nimport --article article.md --images ./images\nimport --text "文章内容" --image cover.png\nguidance\nstate\ntext --text "标题：文章标题"\nhumanize --mode natural\nintent --json \'{"type":"appendBlock","blockType":"paragraph","text":"正文"}\'\nexport --out article.html\ncover --out .local-data/cover [--formula number|painpoint|counter|suspense] [--main 主文案] [--sub 副文案]\npublish --cover cover.jpg --author 作者 --digest 摘要 [--dry-run]\n\ncover 说明：按微信规范生成 900×383(头条) 与 383×383(分享) 两张 SVG 封面，\n 文字居中落在安全区；同时按爆款四公式(数字/痛点/反认知/悬念)草拟封面文案候选，\n 并给出规则体检(数字/需求词/人群)。文案与封面均为草拟，供人工审核挑选后再用。\n 生成的 SVG 可用设计软件或 rsvg/cairosvg 转 PNG 后作为 --cover 传入 publish。\n\n凭据（三选一，优先级从高到低）：\n  WECHAT_ACCESS_TOKEN=...            # 已有 token 直接用\n  WECHAT_APP_ID / WECHAT_APP_SECRET # 自动换取 token\n  WECHAT_DRAFT_API_URL=...          # 指向自有适配层\n publish 说明：--dry-run 只生成本地交付包供人工审核，不上传；\n 去掉 --dry-run 且配好凭据后，上传封面+正文图→写入草稿箱→返回 draft_media_id。\n 仅写草稿箱，永不自动群发/发布，发布由人工在后台完成。');
 } catch (error) { console.error(error.message); process.exitCode = 1; }
