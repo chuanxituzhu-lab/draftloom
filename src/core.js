@@ -317,6 +317,7 @@ export function parseCommand(input) {
   if (/^(?:上移|向上移动)(?:当前|选中)?/i.test(raw)) return { type: 'moveSelected', direction: -1 };
   if (/^(?:下移|向下移动)(?:当前|选中)?/i.test(raw)) return { type: 'moveSelected', direction: 1 };
   if ((m = raw.match(/^插入图片[：:]?\s*(.+)$/i))) return { type: 'insertAssetByName', name: m[1].trim() };
+  if ((m = raw.match(/^(?:替换|更换)(?:当前|选中)?图片[：:]?\s*(.+)$/i))) return { type: 'replaceSelectedAssetByName', name: m[1].trim() };
   return { type: 'appendBlock', blockType: 'paragraph', text: raw };
 }
 
@@ -434,6 +435,50 @@ export function reduceDocument(doc, intent, selectedId = null) {
       if (next.assets.some(a => a.id === intent.asset.id)) return { doc, selectedId, changed: false };
       next.assets.push(intent.asset); break;
     }
+    case 'addAssets': {
+      const assets = Array.isArray(intent.assets) ? intent.assets : [];
+      const incoming = assets.filter(asset => asset?.id && !next.assets.some(existing => existing.id === asset.id));
+      if (!incoming.length) return { doc, selectedId, changed: false };
+      next.assets.push(...incoming);
+      break;
+    }
+    case 'deleteAsset': {
+      const assetId = intent.assetId;
+      const asset = next.assets.find(item => item.id === assetId);
+      if (!asset) return { doc, selectedId, changed: false, error: '素材不存在' };
+      const inUse = next.blocks.some(block => block.assetId === assetId || (block.assetIds || []).includes(assetId));
+      if (inUse) return { doc, selectedId, changed: false, error: '素材正在文章中使用，请先替换或删除对应图片' };
+      next.assets = next.assets.filter(item => item.id !== assetId);
+      break;
+    }
+    case 'deleteUnusedAssets': {
+      const used = new Set(next.blocks.flatMap(block => [block.assetId, ...(block.assetIds || [])]).filter(Boolean));
+      const kept = next.assets.filter(asset => used.has(asset.id));
+      if (kept.length === next.assets.length) return { doc, selectedId, changed: false, error: '没有可清理的未使用素材' };
+      next.assets = kept;
+      break;
+    }
+    case 'replaceSelectedAsset': {
+      if (!selectedId) return { doc, selectedId, changed: false, error: '请先选择文章中的图片' };
+      const block = next.blocks.find(item => item.id === selectedId);
+      const asset = next.assets.find(item => item.id === intent.assetId);
+      if (!block || block.type !== 'image') return { doc, selectedId, changed: false, error: '请先选择文章中的图片' };
+      if (!asset) return { doc, selectedId, changed: false, error: '素材不存在' };
+      if (block.assetId === asset.id) return { doc, selectedId, changed: false };
+      block.assetId = asset.id;
+      block.text = asset.alt || asset.name;
+      break;
+    }
+    case 'replaceSelectedAssetByName': {
+      if (!selectedId) return { doc, selectedId, changed: false, error: '请先选择文章中的图片' };
+      const asset = next.assets.find(item => item.name.toLowerCase().includes(String(intent.name || '').toLowerCase()));
+      if (!asset) return { doc, selectedId, changed: false, error: `未找到素材：${intent.name}` };
+      const block = next.blocks.find(item => item.id === selectedId);
+      if (!block || block.type !== 'image') return { doc, selectedId, changed: false, error: '请先选择文章中的图片' };
+      block.assetId = asset.id;
+      block.text = asset.alt || asset.name;
+      break;
+    }
     case 'insertAssetByName': {
       const asset = next.assets.find(a => a.name.toLowerCase().includes(intent.name.toLowerCase()));
       if (!asset) return { doc, selectedId, changed: false, error: `未找到素材：${intent.name}` };
@@ -491,10 +536,60 @@ export function renderDocumentBody(doc) {
 
 export function renderArticleHtml(doc) {
   const theme = THEMES[normalizeTheme(doc.theme)];
-  const articleStyle = `--accent:${theme.accent};--surface:${theme.surface};--ink:${theme.ink};--heading-font:${theme.heading}`;
-  return `<!doctype html><meta charset="utf-8"><title>${escapeHtml(doc.title)}</title><style>
-  .wechat-article{max-width:677px;margin:auto;padding:28px 20px;background:#fff;color:var(--ink);font-family:system-ui,"PingFang SC","Microsoft YaHei",sans-serif;line-height:1.9}.wechat-article h1{font-family:var(--heading-font);font-size:26px;line-height:1.35;margin:0 0 10px}.wechat-article .subtitle{color:#75808b;margin:0 0 6px}.wechat-article .meta{font-size:12px;color:#a0a8b0;margin-bottom:28px}.wechat-article h2{font-family:var(--heading-font);font-size:20px;margin:28px 0 12px;padding-left:10px;border-left:4px solid var(--accent)}.wechat-article p{font-size:16px;line-height:1.9;text-align:justify;white-space:pre-wrap}.wechat-article blockquote{margin:20px 0;padding:13px 15px;background:var(--surface);border-left:3px solid var(--accent);color:#66727c}.wechat-article figure{margin:22px 0}.wechat-article figure img,.wechat-article .gallery img{max-width:100%;display:block;border-radius:4px}.wechat-article figcaption{text-align:center;color:#9aa4ad;font-size:12px;margin-top:6px}.wechat-article ul,.wechat-article ol{padding-left:24px;font-size:16px;line-height:1.9}.table-wrap{overflow-x:auto;margin:18px 0}.wechat-article table{width:100%;border-collapse:collapse;font-size:14px}.wechat-article th,.wechat-article td{padding:8px;border:1px solid #dfe7ee;text-align:left}.wechat-article th{background:var(--surface)}.cta{text-align:center;margin:26px 0;padding:20px;background:var(--surface);border-radius:10px}.cta a{display:inline-block;padding:8px 18px;border-radius:999px;background:var(--accent);color:#fff;text-decoration:none}.gallery{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:20px 0}.gallery img{width:100%;aspect-ratio:1;object-fit:cover}.media{display:flex;gap:10px;align-items:center;padding:14px;margin:18px 0;background:var(--surface);border-radius:8px}.media a{color:var(--accent)}.missing-image{padding:20px;background:#fff3f3;color:#b42318}
-  </style><article class="wechat-article" style="${escapeHtml(articleStyle)}">${renderDocumentBody(doc)}</article>`;
+  const styles = {
+    article: `max-width:677px;margin:0 auto;padding:28px 20px;background:#fff;color:${theme.ink};line-height:1.9;`,
+    title: `font-size:26px;line-height:1.35;margin:0 0 10px;text-align:center;color:${theme.ink};`,
+    subtitle: 'color:#75808b;margin:0 0 6px;text-align:center;',
+    meta: 'font-size:12px;color:#a0a8b0;margin-bottom:28px;text-align:center;',
+    heading: `font-size:20px;margin:28px 0 12px;padding-left:10px;border-left:4px solid ${theme.accent};color:${theme.ink};`,
+    paragraph: 'font-size:16px;line-height:1.9;text-align:justify;white-space:pre-wrap;margin:16px 0;',
+    quote: `margin:20px 0;padding:13px 15px;background:${theme.surface};border-left:3px solid ${theme.accent};color:#66727c;`,
+    imageFigure: 'margin:22px 0;text-align:center;',
+    image: 'max-width:100%;display:block;margin:0 auto;border-radius:4px;',
+    caption: 'text-align:center;color:#9aa4ad;font-size:12px;margin-top:6px;',
+    list: 'padding-left:24px;font-size:16px;line-height:1.9;margin:14px 0;',
+    listItem: 'margin:6px 0;line-height:1.75;',
+    tableWrap: 'overflow-x:auto;margin:18px 0;',
+    table: 'width:100%;border-collapse:collapse;font-size:14px;',
+    cell: 'padding:8px;border:1px solid #dfe7ee;text-align:left;',
+    headerCell: `padding:8px;border:1px solid #dfe7ee;text-align:left;background:${theme.surface};`,
+    cta: `text-align:center;margin:26px 0;padding:20px;background:${theme.surface};border-radius:10px;`,
+    ctaLink: `display:inline-block;padding:8px 18px;border-radius:999px;background:${theme.accent};color:#fff;text-decoration:none;`,
+    gallery: 'display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:20px 0;',
+    galleryImage: 'width:100%;aspect-ratio:1;object-fit:cover;border-radius:4px;',
+    media: `display:flex;gap:10px;align-items:center;padding:14px;margin:18px 0;background:${theme.surface};border-radius:8px;`,
+    mediaLink: `color:${theme.accent};`,
+    missing: 'padding:20px;background:#fff3f3;color:#b42318;'
+  };
+  const assets = doc.assets || [];
+  const assetById = id => assets.find(asset => asset.id === id);
+  const renderInlineBlock = block => {
+    const text = escapeHtml(block.text || '');
+    if (block.type === 'heading') return `<h2 style="${styles.heading}">${text}</h2>`;
+    if (block.type === 'quote') return `<blockquote style="${styles.quote}">${text}</blockquote>`;
+    if (block.type === 'list') {
+      const items = (block.items || String(block.text || '').split('\\n')).filter(Boolean).map(item => `<li style="${styles.listItem}">${escapeHtml(item)}</li>`).join('');
+      return `${block.ordered ? '<ol' : '<ul'} style="${styles.list}">${items}${block.ordered ? '</ol>' : '</ul>'}`;
+    }
+    if (block.type === 'table') {
+      const headers = (block.headers || []).map(item => `<th style="${styles.headerCell}">${escapeHtml(item)}</th>`).join('');
+      const rows = (block.rows || []).map(row => `<tr>${row.map(cell => `<td style="${styles.cell}">${escapeHtml(cell)}</td>`).join('')}</tr>`).join('');
+      return `<div style="${styles.tableWrap}"><table style="${styles.table}"><thead><tr>${headers}</tr></thead><tbody>${rows}</tbody></table></div>`;
+    }
+    if (block.type === 'cta') return `<div style="${styles.cta}"><p style="${styles.paragraph}">${text}</p><a style="${styles.ctaLink}" href="${escapeHtml(block.href || '#')}">${escapeHtml(block.buttonText || '立即了解')}</a></div>`;
+    if (block.type === 'gallery') {
+      const images = (block.assetIds || []).map(id => assetById(id)).filter(Boolean).map(asset => `<img style="${styles.galleryImage}" src="${escapeHtml(asset.dataUrl)}" alt="${escapeHtml(asset.alt || asset.name)}">`).join('');
+      return `<div style="${styles.gallery}">${images || `<p style="${styles.paragraph}">${text}</p>`}</div>`;
+    }
+    if (block.type === 'media') return `<div style="${styles.media}"><span>${escapeHtml(block.mediaType || 'media')}</span><a style="${styles.mediaLink}" href="${escapeHtml(block.url || '#')}">${text || '打开媒体内容'}</a></div>`;
+    if (block.type === 'image') {
+      const asset = assetById(block.assetId);
+      return asset?.dataUrl ? `<figure style="${styles.imageFigure}"><img style="${styles.image}" src="${escapeHtml(asset.dataUrl)}" alt="${text}"><figcaption style="${styles.caption}">${text}</figcaption></figure>` : `<div style="${styles.missing}">${text || '图片素材已丢失'}</div>`;
+    }
+    return `<p style="${styles.paragraph}">${text}</p>`;
+  };
+  const body = `<h1 style="${styles.title}">${escapeHtml(doc.title)}</h1><p style="${styles.subtitle}">${escapeHtml(doc.subtitle || '')}</p><div style="${styles.meta}">公众号排版 · ${doc.meta?.updatedAt ? new Date(doc.meta.updatedAt).toLocaleDateString() : ''}</div>${(doc.blocks || []).map(renderInlineBlock).join('')}`;
+  return `<!doctype html><meta charset="utf-8"><title>${escapeHtml(doc.title)}</title><article class="wechat-article" style="${styles.article}">${body}</article>`;
 }
 
 export class VersionStore {

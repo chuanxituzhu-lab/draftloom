@@ -9,11 +9,16 @@ const tools = [
   { name: 'publishing_state', description: '读取本地公众号文章状态', inputSchema: { type: 'object', properties: {} } },
   { name: 'publishing_import', description: '导入文章文件和本地图片并自动生成排版结构', inputSchema: { type: 'object', properties: { articlePath: { type: 'string' }, text: { type: 'string' }, images: { type: 'array', items: { type: 'string' } } } } },
   { name: 'publishing_guidance', description: '读取当前文章的人工排版指导建议', inputSchema: { type: 'object', properties: {} } },
+  { name: 'publishing_cover', description: '生成公众号头条版/方版封面 SVG 候选，并返回文案与尺寸检查结果；最终封面由人工确认', inputSchema: { type: 'object', properties: { title: { type: 'string' }, formula: { type: 'string', enum: ['number', 'painpoint', 'counter', 'suspense'] }, out: { type: 'string' }, main: { type: 'string' }, sub: { type: 'string' }, audit: { type: 'string' }, width: { type: 'number' }, height: { type: 'number' }, bg: { type: 'string' }, fg: { type: 'string' }, accent: { type: 'string' } } } },
+  { name: 'publishing_growth_analyze', description: '根据公众号创作画像分析当前文章的合规状态、增长信号和人工修改建议；增长分数只作建议，不触发发布', inputSchema: { type: 'object', properties: { profile: { type: 'object' } } } },
+  { name: 'publishing_growth_brief', description: '根据公众号创作画像生成当前文章的选题方向、标题建议、结构和 CTA，供人工或 Agent 编辑', inputSchema: { type: 'object', properties: { profile: { type: 'object' } } } },
+  { name: 'publishing_draft_status', description: '检查微信公众号草稿箱授权配置状态，不泄露凭据', inputSchema: { type: 'object', properties: {} } },
+  { name: 'publishing_draft_submit', description: '经显式确认后提交当前文章到微信公众号草稿箱；未配置凭据时只生成本地草稿包', inputSchema: { type: 'object', required: ['confirm'], properties: { confirm: { type: 'boolean' }, out: { type: 'string' } } } },
   { name: 'publishing_apply_text', description: '应用中文自然语言排版指令', inputSchema: { type: 'object', required: ['text'], properties: { text: { type: 'string' } } } },
   { name: 'publishing_humanize', description: '以自然化或保守模式处理文章文字，保留原稿以便回滚', inputSchema: { type: 'object', properties: { mode: { type: 'string', enum: ['natural', 'conservative'] } } } },
   { name: 'publishing_apply_intent', description: '应用结构化公众号排版 Intent', inputSchema: { type: 'object', required: ['intent'], properties: { intent: { type: 'object' } } } },
   { name: 'publishing_export', description: '导出公众号 HTML', inputSchema: { type: 'object', required: ['out'], properties: { out: { type: 'string' } } } },
-  { name: 'publishing_publish', description: '生成微信兼容 HTML 与草稿 payload；配置凭据后可提交远程草稿接口', inputSchema: { type: 'object', properties: { out: { type: 'string' }, apiUrl: { type: 'string' } } } }
+  { name: 'publishing_publish', description: '仅生成本地微信兼容 HTML、草稿 payload 与 manifest，不产生远程副作用', inputSchema: { type: 'object', properties: { out: { type: 'string' } } } }
 ];
 const response = (id, value) => ({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(value, null, 2) }] } });
 const failure = (id, message) => ({ jsonrpc: '2.0', id, error: { code: -32000, message } });
@@ -28,6 +33,26 @@ function callTool(name, input) {
     return JSON.parse(execFileSync(process.execPath, args, { encoding: 'utf8' }));
   }
   if (name === 'publishing_guidance') return JSON.parse(execFileSync(process.execPath, [cli, 'guidance', ...dataArgs], { encoding: 'utf8' }));
+  if (name === 'publishing_cover') {
+    const args = [cli, 'cover', ...dataArgs];
+    const options = ['title', 'formula', 'out', 'main', 'sub', 'audit', 'width', 'height', 'bg', 'fg', 'accent'];
+    for (const key of options) {
+      if (input[key] === undefined || input[key] === null || input[key] === '') continue;
+      args.push(`--${key}`, String(input[key]));
+    }
+    return JSON.parse(execFileSync(process.execPath, args, { encoding: 'utf8' }));
+  }
+  if (name === 'publishing_growth_analyze' || name === 'publishing_growth_brief') {
+    const args = [cli, name.endsWith('brief') ? 'growth-brief' : 'growth', ...dataArgs];
+    if (input.profile) args.push('--profile-json', JSON.stringify(input.profile));
+    return JSON.parse(execFileSync(process.execPath, args, { encoding: 'utf8' }));
+  }
+  if (name === 'publishing_draft_status') return JSON.parse(execFileSync(process.execPath, [cli, 'draft-status', ...dataArgs], { encoding: 'utf8' }));
+  if (name === 'publishing_draft_submit') {
+    const args = [cli, 'draft-submit', '--confirm', input.confirm === true ? 'true' : 'false', ...dataArgs];
+    if (input.out) args.push('--out', input.out);
+    return JSON.parse(execFileSync(process.execPath, args, { encoding: 'utf8' }));
+  }
   if (name === 'publishing_apply_text') return JSON.parse(execFileSync(process.execPath, [cli, 'text', '--text', input.text, ...dataArgs], { encoding: 'utf8' }));
   if (name === 'publishing_humanize') return JSON.parse(execFileSync(process.execPath, [cli, 'humanize', '--mode', input.mode === 'conservative' ? 'conservative' : 'natural', ...dataArgs], { encoding: 'utf8' }));
   if (name === 'publishing_apply_intent') return JSON.parse(execFileSync(process.execPath, [cli, 'intent', '--json', JSON.stringify(input.intent), ...dataArgs], { encoding: 'utf8' }));
@@ -35,7 +60,6 @@ function callTool(name, input) {
   if (name === 'publishing_publish') {
     const args = [cli, 'publish', ...dataArgs];
     if (input.out) args.push('--out', input.out);
-    if (input.apiUrl) args.push('--api-url', input.apiUrl);
     return JSON.parse(execFileSync(process.execPath, args, { encoding: 'utf8' }));
   }
   throw new Error(`Unknown tool: ${name}`);

@@ -10,17 +10,20 @@
 - 文章块新增 / 修改 / 删除 / 上下移动
 - 本地图片素材库、点击插入文章
 - Markdown / TXT + 多图片拖放导入，自动识别标题、章节、段落、引用和图片引用
+- 主流程为“导入文章+图片 → 人工编排 → 导出到微信草稿箱”；素材库上传用于后续复用，不与文章导入重复
 - 自动排版指导面板：提示长段落、缺少层级、未匹配图片，并可一键带入人工指令
+- PingPongGrowth 创作画像：按公众号定位、读者、语气和关键词分析文章，并生成标题/结构/CTA 建议
 - 自然语言指导编辑：区块转换、长段落拆分、按序号修改、组件创建
 - 本地 Humanizer：自然化 / 保守调整两种模式，原稿可回滚
 - 冻结语义组件：列表、表格、CTA、画廊、媒体，并支持 Markdown/指令创建
 - 三套 MVP 主题：极简、杂志、清新
+- 封面辅助：按 900×383 / 383×383 规范生成 SVG 候选，检查比例与文件大小，最终由人工确认
 - 微信交付包：导出微信兼容 HTML、草稿 payload 和 manifest；配置接口后可提交远程草稿
 - Harness JS API，可由外部 Agent/自动化层调用
 - 时间戳 + revision 序列号版本机制
 - 最多 50 个编辑版本，支持 Undo / Redo
 - localStorage 本地持久化
-- JSON 导入 / 导出
+- JSON 备份 / 恢复（用于本地备份与 Agent/MCP 交换，不作为微信发布格式）
 - Node 原生测试，无第三方运行依赖
 
 ## 启动
@@ -39,12 +42,19 @@ CLI / MCP 接入：
 npm run cli -- import --article article.md --images ./images
 npm run cli -- import --text "文章内容" --image ./cover.png
 npm run cli -- guidance
+npm run cli -- cover --out .local-data/cover
+npm run cli -- growth
+npm run cli -- growth-brief
 npm run cli -- text --text "标题：AI 时代的个人工作台"
 npm run cli -- humanize --mode natural
 npm run cli -- export --out article.html
 npm run cli -- publish --out .local-data/publish/latest
+npm run cli -- draft-status
+npm run cli -- draft-submit --confirm true
 npm run mcp
 ```
+
+本机需要长期运行时，可先执行 `npm run configure:local` 以 DPAPI 加密保存凭据，再用 `npm run start:background` 后台启动；若希望 Windows 登录后自动启动，执行一次 `npm run autostart:install`。详见 `docs/BACKGROUND_RUN.md`。
 
 浏览器中可将 `.md` / `.txt` 与多张图片一起拖入“导入文章+图片”区域。Markdown 中的 `![说明](图片文件名)` 会自动匹配素材；未在原文引用的图片会追加到文末并提示人工确认。导入后可直接编辑标题、段落、图片顺序，或使用“自动排版指导”面板带入文字指令。
 
@@ -60,7 +70,19 @@ npm run mcp
 去 AI 味：自然
 ```
 
-`publish` 默认只生成本地交付包，不会上传。接入微信公众号草稿时可设置 `WECHAT_ACCESS_TOKEN`，或设置 `WECHAT_APP_ID` + `WECHAT_APP_SECRET` 让 CLI 临时获取 Token；也可用 `WECHAT_DRAFT_API_URL` 指向自有适配层。配置凭据后，PNG/JPEG/GIF 图片会先上传为图文内图片，再提交草稿；Token 不写入文档或输出结果。
+`publish` 默认只生成本地交付包，不会上传。`draft-submit` 必须显式传 `--confirm true`；接入微信公众号草稿时可设置 `WECHAT_ACCESS_TOKEN`，或设置 `WECHAT_APP_ID` + `WECHAT_APP_SECRET`（也兼容压缩包中的 `WX_APPID` / `WX_APPSECRET`）让 CLI 临时获取 Token；也可用 `WECHAT_DRAFT_API_URL` 指向自有适配层。配置凭据后，正文图片会先上传为图文内图片，首图会上传为永久素材封面并取得 `thumb_media_id`，也可通过 `WECHAT_COVER_MEDIA_ID` 复用已有封面，再提交草稿；输出 HTML 使用 inline style，Token 不写入文档或输出结果。
+
+`growth` 和 `growth-brief` 来源于 `pingpong-growth-pipeline` 的合规/增长分层设计：增长分数只提供人工建议，不影响草稿安全边界，也不会自动发布。详见 `docs/GROWTH_INTEGRATION.md`。
+
+GUI 的“导出到微信草稿箱”会先检查本地服务配置：未配置凭据时只生成可回滚的本地草稿包；配置 `WECHAT_ACCESS_TOKEN` 或 `WECHAT_APP_ID` + `WECHAT_APP_SECRET` 后，用户确认才提交远程草稿接口。二维码授权需要一个已配置的授权适配器：
+
+```powershell
+$env:WECHAT_QR_AUTH_URL="https://你的授权适配器/authorize"
+$env:WECHAT_QR_IMAGE_URL="https://你的授权适配器/qr.png" # 可选：直接显示二维码图片
+npm start
+```
+
+点击“授权后自动上传草稿”并完成扫码后，适配器完成平台侧换证，只需向本机 `POST /api/wechat/auth/callback` 提交 `{ "access_token": "...", "expires_in": 7200 }`。GUI 检测到授权成功后会自动上传文章图片并创建公众号草稿，返回草稿编号；凭据写入被 `.gitignore` 排除的 `.local-data/wechat-auth.json`，服务重启后自动复用。不能在前端伪造扫码流程，也不能把 AppSecret 放入浏览器。
 
 ## Harness API
 

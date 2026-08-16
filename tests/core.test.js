@@ -47,6 +47,31 @@ test('asset can be inserted into document by id', () => {
   assert.equal(result.doc.blocks.at(-1).assetId,'a1');
 });
 
+test('asset library supports batch upload and replacing the selected image', () => {
+  let doc = createInitialDocument();
+  const first = {id:'a1',name:'first.png',type:'image/png',size:1,dataUrl:'data:image/png;base64,AA==',alt:'first'};
+  const second = {id:'a2',name:'second.png',type:'image/png',size:1,dataUrl:'data:image/png;base64,AA==',alt:'second'};
+  doc = reduceDocument(doc,{type:'addAssets',assets:[first,second]}).doc;
+  const inserted = reduceDocument(doc,{type:'insertAsset',assetId:'a1'});
+  const imageId = inserted.doc.blocks.at(-1).id;
+  const replaced = reduceDocument(inserted.doc,{type:'replaceSelectedAsset',assetId:'a2'},imageId);
+  assert.equal(replaced.doc.blocks.at(-1).assetId,'a2');
+  assert.equal(replaced.doc.blocks.at(-1).text,'second');
+  assert.deepEqual(parseCommand('替换当前图片：second'),{type:'replaceSelectedAssetByName',name:'second'});
+});
+
+test('asset deletion keeps article references safe', () => {
+  let doc = createInitialDocument();
+  const asset = {id:'used',name:'used.png',type:'image/png',size:1,dataUrl:'data:image/png;base64,AA==',alt:'used'};
+  const spare = {id:'spare',name:'spare.png',type:'image/png',size:1,dataUrl:'data:image/png;base64,AA==',alt:'spare'};
+  doc = reduceDocument(doc,{type:'addAssets',assets:[asset,spare]}).doc;
+  const inserted = reduceDocument(doc,{type:'insertAsset',assetId:'used'});
+  const blocked = reduceDocument(inserted.doc,{type:'deleteAsset',assetId:'used'});
+  assert.equal(blocked.changed,false);
+  const deleted = reduceDocument(inserted.doc,{type:'deleteAsset',assetId:'spare'});
+  assert.equal(deleted.doc.assets.some(item=>item.id==='spare'),false);
+});
+
 test('article import creates semantic blocks and matches referenced images', () => {
   const cover = { id:'cover-1', name:'cover.png', type:'image/png', size:1, dataUrl:'data:image/png;base64,AA==', alt:'封面' };
   const doc = importArticle({
@@ -95,4 +120,11 @@ test('humanizer and split intents preserve a reversible document shape', () => {
   assert.equal(split.doc.blocks.filter(block => block.type === 'paragraph').length >= 2, true);
   assert.match(renderArticleHtml({ ...split.doc, theme: 'fresh' }), /theme|wechat-article/);
   assert.equal(humanizeText('  文本  ', 'conservative'), '文本');
+});
+
+test('微信草稿 HTML uses inline styles for compatibility', () => {
+  const html = renderArticleHtml(createInitialDocument());
+  assert.equal(html.includes('<style>'), false);
+  assert.equal(html.includes('style="'), true);
+  assert.match(html, /class="wechat-article"/);
 });
