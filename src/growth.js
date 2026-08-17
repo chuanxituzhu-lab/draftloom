@@ -1,3 +1,6 @@
+import { renderArticleHtml } from './core.js';
+import { inspectWechatArticle } from './wechat-limits.js';
+
 const DEFAULT_PROFILE = {
   accountName: 'SAYELF山野精灵',
   positioning: '山野茶事、自然生活与真实体验',
@@ -73,9 +76,8 @@ function compliance(doc) {
   const checks = [];
   const requiredMissing = [!title && '标题', !body && '正文', !hasCover(doc) && '封面图'].filter(Boolean);
   checks.push({ name: 'required_fields', passed: requiredMissing.length === 0, score: requiredMissing.length ? 0 : 100, messages: requiredMissing.length ? [`缺少：${requiredMissing.join('、')}`] : [] });
-  const limitIssues = [];
-  if (title.length > 32) limitIssues.push(`标题超过 32 字（当前 ${title.length} 字）`);
-  if (body.length > 20000) limitIssues.push(`正文超过 20000 字（当前 ${body.length} 字）`);
+  const wechatValidation = inspectWechatArticle({ title, author: doc?.author || '', digest: doc?.subtitle || '', content: renderArticleHtml(doc) });
+  const limitIssues = wechatValidation.errors.map(item => item.message);
   checks.push({ name: 'wechat_limits', passed: limitIssues.length === 0, score: limitIssues.length ? 40 : 100, messages: limitIssues });
   const found = BLOCKED_TERMS.filter(term => `${title}\n${body}`.includes(term));
   checks.push({ name: 'blocked_terms', passed: found.length === 0, score: found.length ? 0 : 100, messages: found.map(term => `需人工检查敏感表述：${term}`) });

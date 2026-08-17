@@ -10,6 +10,10 @@ const tools = [
   { name: 'publishing_import', description: '导入文章文件和本地图片并自动生成排版结构', inputSchema: { type: 'object', properties: { articlePath: { type: 'string' }, text: { type: 'string' }, images: { type: 'array', items: { type: 'string' } } } } },
   { name: 'publishing_guidance', description: '读取当前文章的人工排版指导建议', inputSchema: { type: 'object', properties: {} } },
   { name: 'publishing_cover', description: '生成公众号头条版/方版封面 SVG 候选，并返回文案与尺寸检查结果；最终封面由人工确认', inputSchema: { type: 'object', properties: { title: { type: 'string' }, formula: { type: 'string', enum: ['number', 'painpoint', 'counter', 'suspense'] }, out: { type: 'string' }, main: { type: 'string' }, sub: { type: 'string' }, audit: { type: 'string' }, width: { type: 'number' }, height: { type: 'number' }, bg: { type: 'string' }, fg: { type: 'string' }, accent: { type: 'string' } } } },
+  { name: 'publishing_cover_set', description: '根据封面与内容摘要设置区优先复用素材库中的合规封面，缺少时生成可替换候选，并同步摘要', inputSchema: { type: 'object', properties: {} } },
+  { name: 'publishing_visual_compose', description: '根据文章内容总结摘要、生成爆款标题候选，并把素材或本地创意图自动入库后智能插入章节；结果仍可人工替换、移动或删除', inputSchema: { type: 'object', properties: { generate: { type: 'boolean', default: true }, maxGenerated: { type: 'number', default: 3 }, forceTitle: { type: 'boolean', default: false }, fillUnmatched: { type: 'boolean', default: false, description: '将未语义匹配的素材库图片按章节顺序自动填充' } } } },
+  { name: 'publishing_wechat_check', description: '一键检查微信公众号字段、正文、封面与排版建议；先自动修正可安全修正项，再返回仍需人工处理的问题', inputSchema: { type: 'object', properties: {} } },
+  { name: 'publishing_optimize_wechat', description: '按微信公众号发布约束自动修正标题、作者、摘要和封面文案；正文超限时生成系列拆分建议，不静默删除原文', inputSchema: { type: 'object', properties: {} } },
   { name: 'publishing_growth_analyze', description: '根据公众号创作画像分析当前文章的合规状态、增长信号和人工修改建议；增长分数只作建议，不触发发布', inputSchema: { type: 'object', properties: { profile: { type: 'object' } } } },
   { name: 'publishing_growth_brief', description: '根据公众号创作画像生成当前文章的选题方向、标题建议、结构和 CTA，供人工或 Agent 编辑', inputSchema: { type: 'object', properties: { profile: { type: 'object' } } } },
   { name: 'publishing_draft_status', description: '检查微信公众号草稿箱授权配置状态，不泄露凭据', inputSchema: { type: 'object', properties: {} } },
@@ -33,6 +37,13 @@ function callTool(name, input) {
     return JSON.parse(execFileSync(process.execPath, args, { encoding: 'utf8' }));
   }
   if (name === 'publishing_guidance') return JSON.parse(execFileSync(process.execPath, [cli, 'guidance', ...dataArgs], { encoding: 'utf8' }));
+  if (name === 'publishing_visual_compose') {
+    const args = [cli, input.fillUnmatched === true ? 'assets-fill' : 'visuals', '--generate', input.generate === false ? 'false' : 'true', '--max-generated', String(input.maxGenerated ?? 3), '--force-title', input.forceTitle === true ? 'true' : 'false', ...dataArgs];
+    return JSON.parse(execFileSync(process.execPath, args, { encoding: 'utf8' }));
+  }
+  if (name === 'publishing_cover_set') return JSON.parse(execFileSync(process.execPath, [cli, 'cover-set', ...dataArgs], { encoding: 'utf8' }));
+  if (name === 'publishing_wechat_check') return JSON.parse(execFileSync(process.execPath, [cli, 'wechat-check', ...dataArgs], { encoding: 'utf8' }));
+  if (name === 'publishing_optimize_wechat') return JSON.parse(execFileSync(process.execPath, [cli, 'wechat-optimize', ...dataArgs], { encoding: 'utf8' }));
   if (name === 'publishing_cover') {
     const args = [cli, 'cover', ...dataArgs];
     const options = ['title', 'formula', 'out', 'main', 'sub', 'audit', 'width', 'height', 'bg', 'fg', 'accent'];
