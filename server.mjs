@@ -3,8 +3,10 @@ import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { applyProtectedLocalConfig } from './scripts/local-config.mjs';
 
 const root = fileURLToPath(new URL('.', import.meta.url));
+applyProtectedLocalConfig(root);
 const port = Number(process.env.PORT || 4173);
 const types = {
   '.html': 'text/html; charset=utf-8',

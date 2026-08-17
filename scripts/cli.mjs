@@ -2,10 +2,14 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createInitialDocument, parseCommand, reduceDocument, stamp, clone, importArticle, getLayoutGuidance, renderArticleHtml } from '../src/core.js';
 import { analyzeGrowth, getDefaultGrowthProfile, growthBrief } from '../src/growth.js';
 import { draftCoverCopy, renderCoverSvg, auditCoverImage, COVER_SPEC } from '../src/cover.js';
 import { WECHAT_LIMITS, inspectWechatArticle, inspectWechatCover, charCount } from '../src/wechat-limits.js';
+import { applyProtectedLocalConfig } from './local-config.mjs';
+
+applyProtectedLocalConfig(resolve(dirname(fileURLToPath(import.meta.url)), '..'));
 
 const args = process.argv.slice(2);
 const command = args.shift();

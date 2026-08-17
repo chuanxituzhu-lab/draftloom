@@ -470,7 +470,13 @@ function renderAuthBox(value={}){
   const image=value.qrImageUrl?`<img class="qr-auth-image" src="${esc(value.qrImageUrl)}" alt="公众号授权二维码">`:'';
   const link=value.qrAuthUrl?`<a href="${esc(value.qrAuthUrl)}" target="_blank" rel="noreferrer">在新窗口打开授权页</a>`:'';
   const callback=value.callbackUrl?`<code>${esc(value.callbackUrl)}</code>`:'';
-  qrBox.innerHTML=value.qrAuthorization?`<strong>扫码授权公众号</strong>${image}<div>${link}</div><small>扫码后等待本窗口自动刷新。授权适配器回调地址：${callback}</small>`:`<strong>尚未显示二维码</strong><p>请在启动本机服务前配置 WECHAT_QR_IMAGE_URL（二维码图片）或 WECHAT_QR_AUTH_URL（授权页），并让适配器把 access_token 通过 POST 回调到本机。</p><small>本机回调地址：${callback}</small>`;
+  if (value.qrAuthorization) {
+    qrBox.innerHTML=`<strong>扫码授权公众号</strong>${image}<div>${link}</div><small>扫码完成后等待本窗口自动刷新。授权适配器回调地址：${callback}</small>`;
+  } else if (value.remoteReady) {
+    qrBox.innerHTML=`<strong>已检测到本机授权配置</strong><p>当前无需扫码：本机已加载加密保存的公众号接口配置。点击“提交到公众号草稿箱”会直接上传图片并创建草稿，完成后请在公众号后台人工审核发送。</p><small>如需改用二维码授权，请配置 WECHAT_QR_IMAGE_URL（二维码图片）或 WECHAT_QR_AUTH_URL（授权页）。</small>`;
+  } else {
+    qrBox.innerHTML=`<strong>尚未显示二维码</strong><p>官方草稿接口本身不提供扫码登录。请在启动本机服务前配置 WECHAT_QR_IMAGE_URL（二维码图片）或 WECHAT_QR_AUTH_URL（授权页），并让授权适配器把 access_token 通过 POST 回调到本机。</p><small>本机回调地址：${callback}</small>`;
+  }
 }
 async function submitDraftToWechat({skipConfirm=false}={}){
   let statusEl=document.querySelector('#draftStatus');

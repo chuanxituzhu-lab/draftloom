@@ -377,7 +377,7 @@ function setBlockText(block, value) {
 }
 
 function distillWechatBody(doc, targetChars = 18_000) {
-  const eligible = (doc.blocks || []).filter(block => ['paragraph', 'quote', 'cta', 'media', 'list'].includes(block.type));
+  const eligible = (doc.blocks || []).filter(block => ['heading', 'paragraph', 'quote', 'cta', 'media', 'list'].includes(block.type));
   let changedBlocks = 0;
   for (const block of eligible) {
     const before = blockText(block);
@@ -389,15 +389,19 @@ function distillWechatBody(doc, targetChars = 18_000) {
   let guard = 0;
   while (contentChars > targetChars && eligible.length && guard < eligible.length * 3 + 6) {
     const candidate = eligible
-      .filter(block => charCount(blockText(block)) > 64)
+      .filter(block => charCount(blockText(block)) > 16)
       .sort((a, b) => charCount(blockText(b)) - charCount(blockText(a)))[0];
     if (!candidate) break;
     const current = blockText(candidate);
     const reduction = Math.max(48, Math.ceil((contentChars - targetChars) / 2));
-    const max = Math.max(64, charCount(current) - reduction);
+    const minimum = candidate.type === 'heading' ? 8 : 12;
+    const max = Math.max(minimum, charCount(current) - reduction);
     const fitted = distillToLimit(current, max);
-    if (fitted === current) break;
-    setBlockText(candidate, fitted);
+    if (fitted === current) {
+      const fallback = truncateByChars(current, Math.max(minimum, max - 1));
+      if (fallback === current) break;
+      setBlockText(candidate, `${fallback}…`);
+    } else setBlockText(candidate, fitted);
     changedBlocks += 1;
     contentChars = measure();
     guard += 1;

@@ -93,7 +93,7 @@ npm run mcp
 
 导入文章、GUI 编辑、CLI/MCP Intent 执行时会自动检查并处理微信约束，不需要先点击优化按钮；GUI 的“一键检测”会立即重跑完整检查并自动修正可安全修正项，CLI 对应 `npm run cli -- wechat-check`，MCP 对应 `publishing_wechat_check`。点击“智能优化发布约束”会进一步蒸馏正文、更新自动摘要、同步封面文案，并刷新右侧公众号页面结构。点击“导出到微信草稿箱”或执行 `draft-submit` 时还会再做一次提交前检查。正文超过微信上限时会先保护原稿、生成可回滚的系列拆分建议，再对工作稿进行蒸馏提炼；蒸馏后的版本符合规则即可进入草稿箱，仍超限时才阻止远程提交，绝不静默删字。修改记录会写入文档状态，供人工继续调整。MCP 客户端对应调用 `publishing_optimize_wechat`，也可通过文字指令“智能自动化优化修改执行微信公众号发布约束”触发。
 
-GUI 的“导出到微信草稿箱”会先检查本地服务配置：未配置凭据时只生成可回滚的本地草稿包；配置 `WECHAT_ACCESS_TOKEN` 或 `WECHAT_APP_ID` + `WECHAT_APP_SECRET` 后，用户确认才提交远程草稿接口。二维码授权需要一个已配置的授权适配器：
+GUI 的“导出到微信草稿箱”会先检查本地服务配置：未配置凭据时只生成可回滚的本地草稿包；配置 `WECHAT_ACCESS_TOKEN` 或 `WECHAT_APP_ID` + `WECHAT_APP_SECRET` 后，用户确认才提交远程草稿接口。通过 `npm run configure:local` 保存过的 Windows DPAPI 配置会在 `npm start`、CLI、MCP 启动时自动加载，因此下次启动无需再次输入 AppSecret。二维码授权需要一个已配置的授权适配器：
 
 ```powershell
 $env:WECHAT_QR_AUTH_URL="https://你的授权适配器/authorize"
@@ -101,7 +101,7 @@ $env:WECHAT_QR_IMAGE_URL="https://你的授权适配器/qr.png" # 可选：直�
 npm start
 ```
 
-点击“授权后自动上传草稿”并完成扫码后，适配器完成平台侧换证，只需向本机 `POST /api/wechat/auth/callback` 提交 `{ "access_token": "...", "expires_in": 7200 }`。GUI 检测到授权成功后会自动上传文章图片并创建公众号草稿，返回草稿编号；凭据写入被 `.gitignore` 排除的 `.local-data/wechat-auth.json`，服务重启后自动复用。不能在前端伪造扫码流程，也不能把 AppSecret 放入浏览器。
+当二维码适配器已配置时，点击“授权后自动上传草稿”并完成扫码，适配器完成平台侧换证，只需向本机 `POST /api/wechat/auth/callback` 提交 `{ "access_token": "...", "expires_in": 7200 }`。GUI 检测到授权成功后会自动上传文章图片并创建公众号草稿，返回草稿编号；凭据写入被 `.gitignore` 排除的 `.local-data/wechat-auth.json`，服务重启后自动复用。若本机已加载 AppID/AppSecret，界面会直接显示“提交到公众号草稿箱”，不要求扫码。不能在前端伪造扫码流程，也不能把 AppSecret 放入浏览器。
 
 ## Harness API
 
