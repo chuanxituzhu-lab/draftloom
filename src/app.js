@@ -1,6 +1,7 @@
 import { createInitialDocument, parseCommand, reduceDocument, VersionStore, importArticle, getLayoutGuidance, THEMES, normalizeTheme, renderDocumentBody, renderArticleHtml } from './core.js';
 import { analyzeGrowth, getDefaultGrowthProfile, growthBrief, normalizeGrowthProfile } from './growth.js';
 import { WECHAT_LIMITS, inspectWechatArticle, inspectWechatCover, formatBytes } from './wechat-limits.js';
+import { APP_VERSION } from './version.js';
 
 const STORAGE_KEY = 'wechat-layout-mvp:v0.1';
 const ASSET_LIBRARY_KEY = 'wechat-layout-mvp:asset-library:v0.1';
@@ -168,7 +169,7 @@ function render() {
   document.querySelector('#app').innerHTML = `
   <div class="shell theme-${normalizeTheme(doc.theme)}">
     <header class="topbar">
-      <div><strong>公众号排版</strong><span class="badge">MVP v0.1</span></div>
+      <div><strong>公众号排版</strong><span class="badge">MVP v${APP_VERSION}</span></div>
       <div class="top-actions">
         <button id="undoBtn">↶ 回滚</button><button id="redoBtn">↷ 重做</button>
         <button id="visualComposeBtn" title="根据文章语义生成标题图，并把素材/创意图放到合适章节">智能配图与标题</button><button id="assetAutoFillBtn" title="识别图片内容（文件名、描述、OCR/视觉标签）并匹配正文章节">图片智能导入</button><button id="wechatOptimizeBtn" title="蒸馏正文并同步优化标题、作者、摘要、封面文案，动态刷新公众号页面预览">智能优化发布约束</button><button id="draftBtn" class="primary-button">导出到微信草稿箱</button><button id="exportHtmlBtn">导出微信 HTML</button>
@@ -557,7 +558,7 @@ window.wechatLayoutHarness = {
   selectBlock: (id) => { if(doc.blocks.some(b=>b.id===id)){selectedId=id;render();return true;} return false; },
   undo: () => { doc=store.undo(doc);persist();render();return structuredClone(doc); },
   redo: () => { doc=store.redo(doc);persist();render();return structuredClone(doc); },
-  version: '0.1.0'
+  version: APP_VERSION
 };
 
 const loadedOptimization=autoOptimizeLoadedDocument();

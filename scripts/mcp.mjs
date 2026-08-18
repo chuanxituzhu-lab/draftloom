@@ -3,6 +3,7 @@ import { createInterface } from 'node:readline';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import { APP_VERSION } from '../src/version.js';
 
 const cli = resolve(dirname(fileURLToPath(import.meta.url)), 'cli.mjs');
 const tools = [
@@ -80,7 +81,7 @@ rl.on('line', line => {
   if (!line.trim()) return;
   let request; try { request = JSON.parse(line); } catch { process.stdout.write(JSON.stringify(failure(null, 'Invalid JSON')) + '\n'); return; }
   if (request.method === 'notifications/initialized') return;
-  if (request.method === 'initialize') { process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'wechat-layout-mvp', version: '0.1.0' } } }) + '\n'); return; }
+  if (request.method === 'initialize') { process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'wechat-layout-mvp', version: APP_VERSION } } }) + '\n'); return; }
   if (request.method === 'tools/list') { process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { tools } }) + '\n'); return; }
   if (request.method === 'tools/call') { try { process.stdout.write(JSON.stringify(response(request.id, callTool(request.params?.name, request.params?.arguments || {}))) + '\n'); } catch (error) { process.stdout.write(JSON.stringify(failure(request.id, error.message)) + '\n'); } return; }
   if (request.id !== undefined) process.stdout.write(JSON.stringify(failure(request.id, `Method not found: ${request.method}`)) + '\n');

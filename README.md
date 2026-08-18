@@ -1,6 +1,8 @@
-# 公众号排版 MVP v0.1
+# 公众号排版 MVP v0.1.1
 
 本地优先、无第三方依赖的公众号文章可视化排版 MVP。
+
+版本号以 `package.json` 为唯一来源。运行 `npm run version:sync` 会同步界面徽标、MCP 服务版本、Harness 文档和 README；合并到 GitHub `main` 后，`.github/workflows/version-sync.yml` 会自动递增 patch 版本并提交回仓库。
 
 ## 已实现
 
