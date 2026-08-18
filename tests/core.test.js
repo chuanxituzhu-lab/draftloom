@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createInitialDocument, parseCommand, reduceDocument, VersionStore, importArticle, getLayoutGuidance, humanizeText, renderDocumentBody, renderArticleHtml, THEMES, normalizeTheme } from '../src/core.js';
+import { inspectWechatArticle } from '../src/wechat-limits.js';
 
 test('parseCommand handles title and content commands', () => {
   assert.deepEqual(parseCommand('标题：新的标题'), { type:'setTitle', text:'新的标题' });
@@ -108,6 +109,17 @@ test('微信智能优化蒸馏正文、生成系列建议并保留原稿', () =>
   assert.equal(result.optimization.validation.ok, true);
   assert.ok(result.doc.meta.wechatOptimization.seriesPlan);
   assert.match(result.doc.meta.wechatOptimization.changes.join('；'), /系列拆分/);
+});
+
+test('微信智能检测会合并短段落以压缩重复 HTML，同时保留原稿', () => {
+  const doc = createInitialDocument();
+  const originalBlocks = Array.from({ length: 400 }, (_, index) => ({ id: `short-${index}`, type: 'paragraph', text: `第${index + 1}段：这是导入后的短段落。` }));
+  const working = { ...doc, title: '短段落文章', blocks: originalBlocks };
+  const result = reduceDocument(working, { type: 'optimizeWechat' });
+  const validation = inspectWechatArticle({ content: renderArticleHtml(result.doc) });
+  assert.equal(validation.ok, true);
+  assert.ok(result.doc.blocks.length < originalBlocks.length);
+  assert.equal(result.doc.meta.wechatOptimization.protectedOriginalBody.length, originalBlocks.length);
 });
 
 test('智能优化同步封面文案，并在预览中单独显示封面与内容摘要位置', () => {

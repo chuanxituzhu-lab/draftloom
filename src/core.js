@@ -376,6 +376,27 @@ function setBlockText(block, value) {
   } else block.text = text;
 }
 
+function compactWechatBlocks(doc, maxChars = 420) {
+  const blocks = Array.isArray(doc.blocks) ? doc.blocks : [];
+  const compacted = [];
+  let changed = 0;
+  for (const block of blocks) {
+    const previous = compacted.at(-1);
+    if (previous?.type === 'paragraph' && block.type === 'paragraph') {
+      const previousText = blockText(previous);
+      const nextText = blockText(block);
+      if (previousText && nextText && charCount(previousText) + charCount(nextText) + 1 <= maxChars) {
+        previous.text = `${previousText}\n${nextText}`;
+        changed += 1;
+        continue;
+      }
+    }
+    compacted.push(block);
+  }
+  if (changed) doc.blocks = compacted;
+  return changed;
+}
+
 function distillWechatBody(doc, targetChars = 18_000) {
   const eligible = (doc.blocks || []).filter(block => ['heading', 'paragraph', 'quote', 'cta', 'media', 'list'].includes(block.type));
   let changedBlocks = 0;
@@ -384,6 +405,12 @@ function distillWechatBody(doc, targetChars = 18_000) {
     const after = distillText(before);
     if (after !== before) { setBlockText(block, after); changedBlocks += 1; }
   }
+  // A long article imported from OCR often contains dozens of very short
+  // paragraph blocks. Their repeated inline-style wrappers can push the
+  // draft HTML over WeChat's 20,000-character limit even after the text is
+  // distilled. Merge adjacent short paragraphs for delivery while keeping
+  // line breaks, images, headings, and the protected original intact.
+  changedBlocks += compactWechatBlocks(doc);
   const measure = () => inspectWechatArticle({ content: renderArticleHtml(doc) }).fields.contentChars;
   let contentChars = measure();
   let guard = 0;
