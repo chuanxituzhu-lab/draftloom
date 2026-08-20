@@ -10,7 +10,6 @@ import { WECHAT_LIMITS, inspectWechatArticle, inspectWechatCover, charCount } fr
 import { applyProtectedLocalConfig } from './local-config.mjs';
 
 applyProtectedLocalConfig(resolve(dirname(fileURLToPath(import.meta.url)), '..'));
-
 const args = process.argv.slice(2);
 const command = args.shift();
 const option = (name, fallback = undefined) => { const index = args.indexOf(`--${name}`); return index >= 0 ? args[index + 1] : fallback; };
@@ -57,8 +56,7 @@ async function optimizeStateForWechat(state) {
   state.history = [...(state.history || []), { seq: next.meta.revision, ts: next.meta.updatedAt, label: '提交前智能优化微信发布约束', doc: clone(next) }].slice(-50);
   state.future = [];
   await saveState(state);
-  return result.optimization;
-}
+  return result.optimization;}
 const imageTypes = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.svg': 'image/svg+xml' };
 async function assetFromFile(filePath) {
   const data = await readFile(filePath);
@@ -167,8 +165,7 @@ function describeWechatError(body = {}) {
     40001: 'access_token 无效或过期，请检查 AppID/AppSecret',
     40007: 'media_id 无效，封面素材可能已失效',
     40009: '图片超出大小限制（≤10MB）',
-    40164: '调用 IP 不在公众号白名单，请在「设置与开发→基本配置→IP 白名单」加入微信错误消息中的公网 IP',
-    41001: '缺少 access_token 参数',
+    40164: '调用 IP 不在公众号白名单，请在「设置与开发→基本配置→IP 白名单」加入微信错误消息中的公网 IP',    41001: '缺少 access_token 参数',
     45009: '接口调用频次超限',
     45166: '内容含敏感词或非法 HTML 标签，请检查正文',
     48001: '接口未授权，需认证公众号并开通草稿箱权限',
@@ -218,8 +215,7 @@ async function uploadWechatCover(asset, token) {
 }
 async function publishFromState({ allowRemote = false } = {}) {
   const state = await loadState();
-  const optimization = await optimizeStateForWechat(state);
-  const out = resolve(option('out', join('.local-data', 'publish', `revision-${state.doc.meta.revision}`)));
+  const optimization = await optimizeStateForWechat(state);  const out = resolve(option('out', join('.local-data', 'publish', `revision-${state.doc.meta.revision}`)));
   await mkdir(out, { recursive: true });
   const htmlPath = join(out, 'article.html');
   const payloadPath = join(out, 'draft-payload.json');
@@ -233,8 +229,7 @@ async function publishFromState({ allowRemote = false } = {}) {
   let digest = option('digest', state.doc.subtitle || '');
   if (charCount(digest) > WECHAT_LIMITS.digestChars) throw new Error(`摘要超 ${WECHAT_LIMITS.digestChars} 字（微信 draft/add 上限），当前 ${charCount(digest)} 字，请精简`);
   const payload = {
-    article_type: 'news',
-    title,
+    article_type: 'news',    title,
     author,
     digest,
     content: html,
@@ -296,8 +291,7 @@ async function publishFromState({ allowRemote = false } = {}) {
     if (apiFailed) throw new Error(`微信草稿接口失败：${describeWechatError(parsedResponse || {}) || response.status}`);
   } else if (endpoint && !token) {
     delivery = { mode: 'local-bundle', status: 'ready', warning: '已生成草稿包；未检测到 WECHAT_ACCESS_TOKEN，未调用远程接口' };
-  }
-  await writeFile(htmlPath, html, 'utf8');
+  }  await writeFile(htmlPath, html, 'utf8');
   await writeFile(payloadPath, JSON.stringify({ articles: [payload] }, null, 2), 'utf8');
   const manifest = {
     generatedAt: new Date().toISOString(),
@@ -308,8 +302,7 @@ async function publishFromState({ allowRemote = false } = {}) {
     htmlPath,
     payloadPath,
     delivery,
-    optimization: optimization ? { changes: optimization.changes, remaining: optimization.validation?.errors?.map(item => item.message) || [], distilled: optimization.distillation, seriesPlan: optimization.seriesPlan } : null,
-    manual_next_steps: [
+    optimization: optimization ? { changes: optimization.changes, remaining: optimization.validation?.errors?.map(item => item.message) || [], distilled: optimization.distillation, seriesPlan: optimization.seriesPlan } : null,    manual_next_steps: [
       '1. 登录 mp.weixin.qq.com → 草稿箱，人工核对排版/图片/错字',
       '2. 确认无误后在后台手动「群发」或「发布」（本工具不代发）'
     ]
@@ -349,8 +342,7 @@ try {
   else if (command === 'cover') {
     const state = await loadState();
     const title = option('title', state.doc.title || '');
-    const bodyText = (state.doc.blocks || []).map(block => block.text || '').join(' ');
-    const copy = draftCoverCopy({ title, body: bodyText, formula: option('formula', null) });
+    const bodyText = (state.doc.blocks || []).map(block => block.text || '').join(' ');    const copy = draftCoverCopy({ title, body: bodyText, formula: option('formula', null) });
     const chosen = copy.candidates[0] || { main: title, sub: '' };
     const out = resolve(option('out', join('.local-data', 'cover')));
     await mkdir(out, { recursive: true });
@@ -369,11 +361,11 @@ try {
       bg: option('bg', '#0f172a'),
       fg: option('fg', '#ffffff'),
       accent: option('accent', '#22c55e')
-    });
-    const headlinePath = join(out, 'cover-900x383.svg');
+    });    const headlinePath = join(out, 'cover-900x383.svg');
     const squarePath = join(out, 'cover-383x383.svg');
     await writeFile(headlinePath, headlineSvg, 'utf8');
     await writeFile(squarePath, squareSvg, 'utf8');
+    // 若指定了自带封面图，做尺寸/大小规范体检
     let audit = null;
     const existing = option('audit');
     if (existing) {
@@ -397,5 +389,4 @@ try {
   }
   else if (command === 'publish') output(await publishFromState());
   else if (command === 'draft-submit') { if (option('confirm') !== 'true') throw new Error('提交草稿箱前必须显式传入 --confirm true'); output(await publishFromState({ allowRemote: true })); }
-  else console.log('公众号排版 CLI\n\ninit\nimport --article article.md --images ./images\nimport --text "文章内容" --image cover.png\nvisuals --max-generated 3\ncover-set\ncover-import --image assets/covers/cover.jpg --width 900 --height 383\nviral-title\nassets-fill\nwechat-check\nwechat-optimize\nguidance\ngrowth [--profile .local-data/growth-profile.json]\ngrowth-brief [--profile .local-data/growth-profile.json]\nstate\ndraft-status\ndraft-submit --confirm true\ntext --text "标题：文章标题"\nhumanize --mode natural\nintent --json \'{"type":"appendBlock","blockType":"paragraph","text":"正文"}\'\nexport --out article.html\npublish --out .local-data/publish/revision-1');
-} catch (error) { console.error(error.message); process.exitCode = 1; }
+  else console.log('公众号排版 CLI\n\ninit\nimport --article article.md --images ./images\nimport --text "文章内容" --image cover.png\nvisuals --max-generated 3\ncover-set\ncover-import --image assets/covers/cover.jpg --width 900 --height 383\nviral-title\nassets-fill\nwechat-check\nwechat-optimize\nguidance\ngrowth [--profile .local-data/growth-profile.json]\ngrowth-brief [--profile .local-data/growth-profile.json]\nstate\ndraft-status\ndraft-submit --confirm true\ntext --text "标题：文章标题"\nhumanize --mode natural\nintent --json \'{"type":"appendBlock","blockType":"paragraph","text":"正文"}\'\nexport --out article.html\npublish --out .local-data/publish/revision-1');} catch (error) { console.error(error.message); process.exitCode = 1; }

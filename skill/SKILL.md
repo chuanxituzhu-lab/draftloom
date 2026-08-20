@@ -57,8 +57,7 @@ description: Edit and preview Chinese WeChat Official Account articles with the 
   {"type":"addAssets","assets":[{"id":"asset-id","name":"cover.png","type":"image/png","size":0,"dataUrl":"data:image/png;base64,...","alt":"封面"}]},
   {"type":"insertAsset","assetId":"asset-id"},
   {"type":"replaceSelectedAsset","assetId":"asset-id"},
-  {"type":"deleteAsset","assetId":"asset-id"},
-  {"type":"insertAssetByName","name":"cover"},
+  {"type":"deleteAsset","assetId":"asset-id"},  {"type":"insertAssetByName","name":"cover"},
   {"type":"convertSelected","blockType":"quote"},
   {"type":"splitSelected"},
   {"type":"setTheme","theme":"editorial"},
@@ -86,8 +85,7 @@ description: Edit and preview Chinese WeChat Official Account articles with the 
 - `下移当前`
 - `删除当前`
 - `插入图片：cover`
-- `替换当前图片：cover`
-- `把当前改成引用`
+- `替换当前图片：cover`- `把当前改成引用`
 - `拆分当前段落`
 - `添加表格：指标|结果\n阅读量|1000`
 - `主题：杂志`
@@ -115,7 +113,6 @@ npm run cli -- wechat-optimize
 ```
 
 Harness 还提供 `getGrowthProfile()`、`setGrowthProfile(profile)`、`analyzeGrowth(profile)` 和 `growthBrief(profile)`。
-
 ## CLI / MCP 接入
 
 在项目根目录运行：
@@ -138,35 +135,3 @@ npm run cli -- export --out article.html
 npm run cli -- publish --out .local-data/publish/latest
 npm run cli -- draft-status
 npm run cli -- draft-submit --confirm true
-```
-
-## 草稿箱发布工作流
-
-按以下顺序执行：
-
-1. 先完成文章导入、图片匹配、人工排版和微信兼容检查。
-2. 导入文章、GUI 编辑、CLI/MCP Intent 执行时自动检查微信约束，不依赖用户先点击优化按钮；GUI 的“一键检测”会返回完整检查报告并自动修正安全项，CLI 使用 `wechat-check`，MCP 使用 `publishing_wechat_check`。也可点击 GUI 的“智能优化发布约束”、运行 `npm run cli -- wechat-optimize` 或调用 MCP `publishing_optimize_wechat` 重跑。点击“导出到微信草稿箱”或执行 `draft-submit` 时还会自动再检查一次。正文超限时先保护原稿并生成系列拆分计划，再蒸馏工作稿；蒸馏后合规即可提交，仍超限才阻止远程提交，不代替人工删文。
-3. 编辑器、CLI、MCP 和服务端统一执行微信字段限制：标题 ≤32 字、作者 ≤16 字、摘要 ≤128 字、正文严格小于 20,000 字符且小于 1MiB，原文链接 ≤1KiB，单张图片 ≤10MiB；标题封面主文案 ≤10 字、副文案 ≤14 字，头条图 900×383、分享图 383×383，宽度 ≤1280px，封面使用 PNG/JPEG。
-4. 调用 `draft-status` 检查本地服务是否配置 `WECHAT_ACCESS_TOKEN` 或 `WECHAT_APP_ID` + `WECHAT_APP_SECRET`。Windows 上通过 `npm run configure:local` 保存的 DPAPI 配置会在服务、CLI、MCP 启动时自动加载，后续无需重复输入 AppSecret。
-5. 需要提交远程草稿箱时必须显式确认；未确认时只生成本地草稿包。超限文章可以导出本地包，但远程提交会被阻止。
-6. 图片先上传为微信图文内图片，再创建草稿；不要把本地 Data URL 直接当作远程图片地址。正文大小按上传后的图片 URL 计量。
-7. 首图作为封面上传为永久素材并写入 `thumb_media_id`；没有首图时必须先补封面，不能提交一个不可审核的空封面草稿。
-8. 草稿进入公众号后台后，由人工在微信公众平台检查并一键发送。
-
-封面辅助命令会按 900×383（头条）和 383×383（分享缩略图）生成 SVG 候选，并返回数字/痛点/反认知/悬念四种文案建议。若已有符合规则的 PNG/JPEG 封面，可用 `cover-import` 写入素材库、替换当前头条封面并同步文档的 `visualPlan.coverAssetId`：
-
-```bash
-npm run cli -- cover --out .local-data/cover --formula number
-npm run cli -- cover --audit ./cover.png --width 900 --height 383
-npm run cli -- cover-import --image ./cover.jpg --width 900 --height 383
-```
-
-二维码授权需要已配置的授权适配器。配置 `WECHAT_QR_AUTH_URL` 可显示授权入口，配置 `WECHAT_QR_IMAGE_URL` 可在 GUI 中直接显示二维码图片。用户点击“授权后自动上传草稿”并完成扫码后，适配器完成扫码与平台侧换证，只能通过本机 `POST /api/wechat/auth/callback` 提交 `{access_token, expires_in}`；GUI 检测到授权成功后自动上传图片并创建公众号草稿。凭据写入 `.local-data/wechat-auth.json`，下次启动自动复用。不允许伪造登录二维码、把 AppSecret 放进浏览器或把授权码转发到任意未审核服务。
-
-GUI 的主流程是“导入文章+图片 → 自动总结/爆款标题 → 素材入库并智能填充 → 人工编排 → 导出到微信草稿箱”。“导入文章+图片”会复用本机跨文章素材库，上传的新图和自动生成图都会登记到素材库；图片上传会在浏览器端压缩大图后一次性写入，减少等待和本地存储占用。普通用户无需手动备份/恢复 JSON；完整文档状态仍由 `.local-data/document.json` 保存，并供 CLI/MCP/Agent 交换，不是微信发布格式。
-
-素材区提供“我的素材 / 资源库 / 文字稿”三个页签：我的素材用于上传与管理当前素材，资源库用于本地复用，文字稿用于查看受保护的原稿。素材容量上限为 200 个，可搜索、排序、筛选未使用素材并清理；点击删除会同步移除文章中的图片引用，刷新后不会恢复。
-
-“导出到微信草稿箱”未配置凭据时只生成本地草稿包；配置 `WECHAT_ACCESS_TOKEN` 或 `WECHAT_APP_ID` + `WECHAT_APP_SECRET` 后，经用户确认提交远程草稿接口，GUI 会显示可用的“提交到公众号草稿箱”按钮。官方公众号草稿接口不提供直接扫码登录，二维码授权只能通过另接的第三方授权适配器实现；适配器配置后 GUI 显示二维码/授权入口，扫码回调成功会自动上传图片并创建草稿。
-
-MCP 客户端使用 `npm run mcp`，通过 JSON-RPC stdio 调用 `publishing_import`、`publishing_visual_compose`、`publishing_cover_set`、`publishing_guidance`、`publishing_cover`、`publishing_wechat_check`、`publishing_optimize_wechat`、`publishing_state`、`publishing_draft_status`、`publishing_draft_submit`、`publishing_apply_text`、`publishing_humanize`、`publishing_apply_intent`、`publishing_export` 和 `publishing_publish`。`publishing_cover_set` 会优先根据设置区从素材库复用或设置合规封面、置为首图并同步摘要；没有合规封面时才生成一个可替换候选，不重复导入已有素材；`publishing_visual_compose` 默认使用本地确定性 SVG fallback，不产生网络副作用；后续可替换为受控的图像生成 provider。SVG 适合本地预览，提交微信前需换成 PNG/JPEG 素材或使用已有永久封面 `WECHAT_COVER_MEDIA_ID`。`publishing_cover` 只生成候选文件与检查结果；`publishing_draft_submit` 必须传 `confirm: true` 才允许产生远程提交副作用。状态默认写入 `.local-data/document.json`，也可通过 `WECHAT_LAYOUT_DATA` 指定路径。

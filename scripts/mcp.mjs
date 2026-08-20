@@ -5,8 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { APP_VERSION } from '../src/version.js';
 
-const cli = resolve(dirname(fileURLToPath(import.meta.url)), 'cli.mjs');
-const tools = [
+const cli = resolve(dirname(fileURLToPath(import.meta.url)), 'cli.mjs');const tools = [
   { name: 'publishing_state', description: '读取本地公众号文章状态', inputSchema: { type: 'object', properties: {} } },
   { name: 'publishing_import', description: '导入文章文件和本地图片并自动生成排版结构', inputSchema: { type: 'object', properties: { articlePath: { type: 'string' }, text: { type: 'string' }, images: { type: 'array', items: { type: 'string' } } } } },
   { name: 'publishing_guidance', description: '读取当前文章的人工排版指导建议', inputSchema: { type: 'object', properties: {} } },
@@ -26,8 +25,7 @@ const tools = [
   { name: 'publishing_publish', description: '仅生成本地微信兼容 HTML、草稿 payload 与 manifest，不产生远程副作用', inputSchema: { type: 'object', properties: { out: { type: 'string' } } } }
 ];
 const response = (id, value) => ({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(value, null, 2) }] } });
-const failure = (id, message) => ({ jsonrpc: '2.0', id, error: { code: -32000, message } });
-function callTool(name, input) {
+const failure = (id, message) => ({ jsonrpc: '2.0', id, error: { code: -32000, message } });function callTool(name, input) {
   const dataArgs = process.env.WECHAT_LAYOUT_DATA ? ['--data', process.env.WECHAT_LAYOUT_DATA] : [];
   if (name === 'publishing_state') return JSON.parse(execFileSync(process.execPath, [cli, 'state', ...dataArgs], { encoding: 'utf8' }));
   if (name === 'publishing_import') {

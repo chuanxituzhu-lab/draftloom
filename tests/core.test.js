@@ -39,7 +39,6 @@ test('version store supports bounded undo/redo snapshots', () => {
   doc = versions.redo(doc);
   assert.equal(doc.title, '3');
 });
-
 test('asset can be inserted into document by id', () => {
   let doc = createInitialDocument();
   const asset = {id:'a1',name:'cover.png',type:'image/png',size:1,dataUrl:'data:image/png;base64,AA==',alt:'cover'};
@@ -211,7 +210,6 @@ test('theme catalog contains five distinct workspace themes', () => {
   assert.notEqual(minimal, sunset);
   assert.match(sunset, /#e45f3f/);
 });
-
 test('import creates list, table and CTA semantic blocks', () => {
   const doc = importArticle({ text: '# 标题\n\n- 甲\n- 乙\n\n|列A|列B|\n|---|---|\n|值1|值2|\n\n:::cta\ntext: 继续阅读\nbutton: 打开\n:::' });
   assert.deepEqual(doc.blocks.map(block => block.type), ['list', 'table', 'cta']);

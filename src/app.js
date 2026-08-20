@@ -169,8 +169,7 @@ function render() {
   document.querySelector('#app').innerHTML = `
   <div class="shell theme-${normalizeTheme(doc.theme)}">
     <header class="topbar">
-      <div><strong>公众号排版</strong><span class="badge">MVP v${APP_VERSION}</span></div>
-      <div class="top-actions">
+      <div><strong>公众号排版</strong><span class="badge">MVP v${APP_VERSION}</span></div>      <div class="top-actions">
         <button id="undoBtn">↶ 回滚</button><button id="redoBtn">↷ 重做</button>
         <button id="visualComposeBtn" title="根据文章语义生成标题图，并把素材/创意图放到合适章节">智能配图与标题</button><button id="assetAutoFillBtn" title="识别图片内容（文件名、描述、OCR/视觉标签）并匹配正文章节">图片智能导入</button><button id="wechatOptimizeBtn" title="蒸馏正文并同步优化标题、作者、摘要、封面文案，动态刷新公众号页面预览">智能优化发布约束</button><button id="draftBtn" class="primary-button">导出到微信草稿箱</button><button id="exportHtmlBtn">导出微信 HTML</button>
         <label class="button primary-button">导入文章+图片<input id="articleImportInput" type="file" accept=".md,.markdown,.txt,text/plain,image/*" multiple hidden></label>
@@ -204,11 +203,27 @@ function render() {
   </div>`;
   bindEvents();
 }
-
 function renderEditorBlock(b) {
   if (b.type === 'image') {
     const a = assetById(b.assetId);
     return `<div class="block ${b.id===selectedId?'selected':''}" data-block="${b.id}">${a?`<img class="editor-image" src="${a.dataUrl}" alt="${esc(b.text)}">`:'<div class="missing">图片素材已丢失</div>'}<div class="image-replace-hint">先选中图片，再点击素材库里的“替换当前”</div><div class="block-tools"><button data-move="-1">↑</button><button data-move="1">↓</button><button data-delete>删除</button></div></div>`;
+  }
+  if (b.type === 'list') {
+    return `<div class="block ${b.id===selectedId?'selected':''}" data-block="${b.id}"><div class="special-label">${b.ordered?'有序':'无序'}列表</div><textarea class="special-editor" data-list-edit="${b.id}">${esc((b.items || b.text?.split('\n') || []).join('\n'))}</textarea><div class="block-tools"><button data-move="-1">↑</button><button data-move="1">↓</button><button data-delete>删除</button></div></div>`;
+  }
+  if (b.type === 'table') {
+    const value = [b.headers || [], ...(b.rows || [])].map(row => row.join(' | ')).join('\n');
+    return `<div class="block ${b.id===selectedId?'selected':''}" data-block="${b.id}"><div class="special-label">数据表格</div><textarea class="special-editor" data-table-edit="${b.id}">${esc(value)}</textarea><div class="block-tools"><button data-move="-1">↑</button><button data-move="1">↓</button><button data-delete>删除</button></div></div>`;
+  }
+  if (b.type === 'cta') {
+    return `<div class="block ${b.id===selectedId?'selected':''}" data-block="${b.id}"><div class="special-label">CTA · ${esc(b.buttonText || '立即了解')}</div><div class="editable block-cta" contenteditable="true" spellcheck="false" data-component-edit="${b.id}">${esc(b.text)}</div><div class="block-tools"><button data-move="-1">↑</button><button data-move="1">↓</button><button data-delete>删除</button></div></div>`;
+  }
+  if (b.type === 'gallery') {
+    const images = (b.assetIds || []).map(assetById).filter(Boolean).map(asset => `<img src="${asset.dataUrl}" alt="${esc(asset.alt || asset.name)}">`).join('');
+    return `<div class="block ${b.id===selectedId?'selected':''}" data-block="${b.id}"><div class="special-label">画廊 · ${b.assetIds?.length || 0} 张图片</div><div class="editor-gallery">${images || '<span>请使用“添加画廊：图片名”插入素材</span>'}</div><div class="block-tools"><button data-move="-1">↑</button><button data-move="1">↓</button><button data-delete>删除</button></div></div>`;
+  }
+  if (b.type === 'media') {
+    return `<div class="block ${b.id===selectedId?'selected':''}" data-block="${b.id}"><div class="special-label">媒体 · ${esc(b.mediaType || 'video')}</div><div class="editable block-media" contenteditable="true" spellcheck="false" data-component-edit="${b.id}">${esc(b.text)}</div><div class="hint">${esc(b.url || '未设置媒体地址')}</div><div class="block-tools"><button data-move="-1">↑</button><button data-move="1">↓</button><button data-delete>删除</button></div></div>`;
   }
   if (b.type === 'list') {
     return `<div class="block ${b.id===selectedId?'selected':''}" data-block="${b.id}"><div class="special-label">${b.ordered?'有序':'无序'}列表</div><textarea class="special-editor" data-list-edit="${b.id}">${esc((b.items || b.text?.split('\n') || []).join('\n'))}</textarea><div class="block-tools"><button data-move="-1">↑</button><button data-move="1">↓</button><button data-delete>删除</button></div></div>`;
@@ -275,15 +290,171 @@ function renderDraftLimitBox(validation = getWechatDraftValidation()) {
   if (el) el.innerHTML = renderWechatLimits(validation);
 }
 
-function runWechatCheck() {
-  const changed = commit({ type: 'optimizeWechat' }, '一键检测与优化');
+function coverForDocument(documentValue = {}) {
+  const blocks = Array.isArray(documentValue.blocks) ? documentValue.blocks : [];
+  const block = blocks.find(item => item.type === 'image' && item.visualRole === 'cover') || blocks.find(item => item.type === 'image') || null;
+  const asset = block ? (documentValue.assets || []).find(item => item.id === block.assetId) || null : null;
+  return { block, asset };
+}
+
+function loadImage(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('封面图片无法读取'));
+    image.src = dataUrl;
+  });
+}
+
+/**
+ * The local creative provider deliberately emits SVG because it is fast and
+ * deterministic. WeChat's draft API accepts PNG/JPEG only, so the GUI
+ * converts an unsupported cover into the frozen 900×383 head-image slot before
+ * reporting the result. The original data URL is retained for undo/debugging.
+ */
+async function rasterizeWechatCover(asset) {
+  if (!asset?.dataUrl) return null;
+  const image = await loadImage(asset.dataUrl);
+  const width = WECHAT_LIMITS.titleImage.headline.w;
+  const height = WECHAT_LIMITS.titleImage.headline.h;
+  const sourceWidth = Number(image.naturalWidth || asset.width || width);
+  const sourceHeight = Number(image.naturalHeight || asset.height || height);
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('浏览器不支持封面图片转换');
+  context.fillStyle = '#ffffff';
+  context.fillRect(0, 0, width, height);
+  // Cover-fit into 900×383 so an arbitrary imported ratio cannot leave the
+  // title image slot in an invalid state. The generated SVG already matches.
+  const scale = Math.max(width / sourceWidth, height / sourceHeight);
+  const drawWidth = sourceWidth * scale;
+  const drawHeight = sourceHeight * scale;
+  context.drawImage(image, (width - drawWidth) / 2, (height - drawHeight) / 2, drawWidth, drawHeight);
+  let type = 'image/png';
+  let dataUrl = canvas.toDataURL(type);
+  // PNG is lossless and the safest default. If an unusually large cover is
+  // produced, fall back to a quality-controlled JPEG under the API limit.
+  if (Math.round(dataUrl.length * 0.75) > WECHAT_LIMITS.titleImage.maxBytes) {
+    type = 'image/jpeg';
+    dataUrl = canvas.toDataURL(type, 0.84);
+  }
+  return {
+    ...asset,
+    name: String(asset.name || 'draftloom-cover').replace(/\.(svg|webp|gif|bmp)$/i, '') + (type === 'image/png' ? '.png' : '.jpg'),
+    type,
+    dataUrl,
+    size: Math.round(dataUrl.length * 0.75),
+    width,
+    height,
+    sourceType: asset.type || String(asset.dataUrl).match(/^data:([^;,]+)/i)?.[1] || '',
+    sourceDataUrl: asset.sourceDataUrl || asset.dataUrl
+  };
+}
+
+function coverNeedsRaster(asset, validation) {
+  const type = String(asset?.type || String(asset?.dataUrl || '').match(/^data:([^;,]+)/i)?.[1] || '').toLowerCase();
+  const accepted = WECHAT_LIMITS.titleImage.acceptedTypes.map(value => value.toLowerCase());
+  const ratio = Number(validation?.fields?.width || 0) / Number(validation?.fields?.height || 1);
+  const targetRatio = WECHAT_LIMITS.titleImage.headline.w / WECHAT_LIMITS.titleImage.headline.h;
+  return !accepted.includes(type)
+    || !Number.isFinite(ratio)
+    || Math.abs(ratio - targetRatio) >= 0.03
+    || Number(validation?.fields?.width || 0) > WECHAT_LIMITS.titleImage.maxWidthPx
+    || Number(validation?.fields?.bytes || 0) > WECHAT_LIMITS.titleImage.maxBytes;
+}
+
+/** Apply deterministic field fixes and browser-only cover conversion in one action. */
+async function autoRepairWechatConstraints(label = '一键检测与优化') {
+  setStatus('正在智能检测并修复微信发布限制…');
+  let candidate = structuredClone(doc);
+  let candidateSelectedId = selectedId;
+  const changes = [];
+
+  const optimized = reduceDocument(candidate, { type: 'optimizeWechat' }, candidateSelectedId);
+  if (optimized.error) { setStatus(optimized.error); return { changed: false, error: optimized.error }; }
+  if (optimized.changed) {
+    candidate = optimized.doc;
+    candidateSelectedId = optimized.selectedId;
+    changes.push(...(optimized.optimization?.changes || []));
+  }
+
+  let cover = coverForDocument(candidate);
+  if (!cover.asset) {
+    const coverResult = reduceDocument(candidate, { type: 'smartCover' }, candidateSelectedId);
+    if (coverResult.error) { setStatus(coverResult.error); return { changed: false, error: coverResult.error }; }
+    if (coverResult.changed) {
+      candidate = coverResult.doc;
+      candidateSelectedId = coverResult.selectedId;
+      changes.push('已自动生成并设置公众号封面');
+      // smartCover can create a new SVG, so inspect it again below.
+      cover = coverForDocument(candidate);
+    }
+  }
+
+  if (cover.asset) {
+    const coverValidation = inspectWechatCover({
+      width: cover.asset.width,
+      height: cover.asset.height,
+      bytes: cover.asset.size,
+      type: cover.asset.type,
+      main: cover.asset.coverMain || '',
+      sub: cover.asset.coverSub || ''
+    });
+    if (coverNeedsRaster(cover.asset, coverValidation)) {
+      try {
+        const raster = await rasterizeWechatCover(cover.asset);
+        candidate.assets = candidate.assets.map(asset => asset.id === cover.asset.id ? raster : asset);
+        changes.push(`封面已自动转换为 PNG（${raster.width}×${raster.height}）`);
+      } catch (error) {
+        changes.push(`封面自动转换失败：${error.message}`);
+      }
+    }
+  }
+
+  // Re-run the reducer after inserting/converting the cover so its copy and
+  // distilled summary are synchronized with the final document state.
+  const finalOptimize = reduceDocument(candidate, { type: 'optimizeWechat' }, candidateSelectedId);
+  if (finalOptimize.changed) {
+    candidate = finalOptimize.doc;
+    candidateSelectedId = finalOptimize.selectedId;
+    changes.push(...(finalOptimize.optimization?.changes || []));
+  }
+  const optimization = candidate.meta?.wechatOptimization || {};
+  candidate.meta = {
+    ...(candidate.meta || {}),
+    wechatOptimization: {
+      ...optimization,
+      at: new Date().toISOString(),
+      changes: [...new Set([...(optimization.changes || []), ...changes])]
+    }
+  };
+  // Avoid creating a new version merely because the reducer refreshed its
+  // diagnostic timestamp when the document is already compliant.
+  if (!changes.length && doc.meta?.wechatOptimization) {
+    candidate.meta.wechatOptimization = structuredClone(doc.meta.wechatOptimization);
+  }
+
+  const changed = JSON.stringify(candidate) !== JSON.stringify(doc);
+  if (changed) {
+    selectedId = candidateSelectedId;
+    commit({ type: 'replaceDocument', doc: candidate }, label);
+  } else {
+    render();
+  }
+  return { changed, changes: [...new Set(changes)], validation: getWechatDraftValidation() };
+}
+
+async function runWechatCheck() {
+  const repair = await autoRepairWechatConstraints('一键检测与优化');
   const validation = getWechatDraftValidation();
   const guidance = getLayoutGuidance(doc);
   const errors = validation.errors || [];
   const pendingGuidance = guidance.filter(item => item.level !== 'ok').length;
   const summary = errors.length
     ? `仍有 ${errors.length} 项微信发布限制需要人工处理`
-    : changed
+    : repair.changed
       ? '已自动修正可安全修正项，正文超限已完成蒸馏检查'
       : pendingGuidance
         ? `规则已通过，另有 ${pendingGuidance} 项排版建议可人工调整`
@@ -292,7 +463,7 @@ function runWechatCheck() {
   document.querySelectorAll('.editor-panel .wechat-limits').forEach(el => { el.outerHTML = renderWechatLimits(validation); });
   renderDraftLimitBox(validation);
   setStatus(`一键检测完成：${summary}`);
-  return { changed, validation: structuredClone(validation), guidance: structuredClone(guidance) };
+  return { changed: repair.changed, validation: structuredClone(validation), guidance: structuredClone(guidance) };
 }
 
 function bindLibraryEvents() {
@@ -316,8 +487,7 @@ function bindLibraryEvents() {
 
 function bindEvents() {
   document.querySelectorAll('[data-select]').forEach(el=>el.onclick=()=>{selectedId=el.dataset.select; render();});
-  document.querySelectorAll('[data-block]').forEach(el=>el.onclick=(e)=>{ if(!e.target.closest('button')){selectedId=el.dataset.block; document.querySelectorAll('.block').forEach(x=>x.classList.toggle('selected',x.dataset.block===selectedId));}});
-  document.querySelectorAll('[data-edit]').forEach(el=>{
+  document.querySelectorAll('[data-block]').forEach(el=>el.onclick=(e)=>{ if(!e.target.closest('button')){selectedId=el.dataset.block; document.querySelectorAll('.block').forEach(x=>x.classList.toggle('selected',x.dataset.block===selectedId));}});  document.querySelectorAll('[data-edit]').forEach(el=>{
     el.onfocus=()=>{ selectedId=el.dataset.edit; };
     el.onblur=()=>commit({type:'updateBlock', id:el.dataset.edit, text:el.textContent.trim()}, '编辑内容');
   });
@@ -341,8 +511,7 @@ function bindEvents() {
     commit({type:'appendBlock',blockType:type,...defaults[type]},'新增内容');
   });
   const run = ()=>{ const input=document.querySelector('#commandInput'); const text=input.value; if(commit(parseCommand(text),`指令：${text.slice(0,24)}`)) input.value=''; };
-  document.querySelector('#runCommand').onclick=run;
-  document.querySelector('#commandInput').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();run();}};
+  document.querySelector('#runCommand').onclick=run;  document.querySelector('#commandInput').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();run();}};
   document.querySelector('#titleInput').onchange=e=>commit({type:'setTitle',text:e.target.value.trim()},'修改标题');
   document.querySelector('#authorInput').onchange=e=>commit({type:'setAuthor',text:e.target.value.trim()},'修改作者');
   document.querySelector('#subtitleInput').onchange=e=>commit({type:'setSubtitle',text:e.target.value.trim()},'修改副标题');
@@ -359,12 +528,16 @@ function bindEvents() {
   document.querySelector('#coverAutoBtn').onclick=()=>commit({type:'smartCover'},'封面一键设置');
   document.querySelector('#assetAutoFillBtn').onclick=()=>commit({type:'autoComposeVisuals',generate:false,maxGenerated:0,fillUnmatched:true,titleMode:'safe'},'图片智能导入');
   document.querySelector('#wechatCheckBtn').onclick=runWechatCheck;
-  document.querySelector('#wechatOptimizeBtn').onclick=()=>commit({type:'optimizeWechat'},'智能优化微信发布约束');
+  document.querySelector('#wechatOptimizeBtn').onclick=()=>autoRepairWechatConstraints('智能优化微信发布约束').then(() => {
+    const validation = getWechatDraftValidation();
+    document.querySelectorAll('.editor-panel .wechat-limits').forEach(el => { el.outerHTML = renderWechatLimits(validation); });
+    renderDraftLimitBox(validation);
+    setStatus(validation.ok ? '智能优化完成：已自动修复微信发布限制' : `智能优化完成：仍有 ${validation.errors.length} 项限制需处理`);
+  }).catch(error => setStatus(`智能优化失败：${error.message}`));
   document.querySelector('#viralTitleBtn').onclick=()=>commit({type:'autoComposeVisuals',generate:false,maxGenerated:0,titleMode:'viral',forceTitle:true},'生成爆款标题');
   document.querySelectorAll('[data-title-candidate]').forEach(el=>el.onclick=()=>commit({type:'setTitle',text:el.dataset.titleCandidate},'采用标题候选'));
   document.querySelector('#localDraftBtn').onclick=()=>{exportDraftBundle();document.querySelector('#draftDialog')?.close();};
-  document.querySelector('#submitDraftBtn').onclick=submitDraftToWechat;
-  document.querySelector('#exportHtmlBtn').onclick=exportHtml;
+  document.querySelector('#submitDraftBtn').onclick=submitDraftToWechat;  document.querySelector('#exportHtmlBtn').onclick=exportHtml;
   document.querySelector('#articleImportInput').onchange=e=>handleArticleImport(e.target.files);
   const drop = document.querySelector('#importDrop');
   drop.onclick=()=>document.querySelector('#articleImportInput').click();
@@ -421,18 +594,11 @@ async function optimizeImageFile(file){
   const dataUrl=canvas.toDataURL('image/jpeg',0.82);
   return {dataUrl,type:'image/jpeg',size:Math.round((dataUrl.length*3)/4)};
 }
-function optimizeWechatForSubmit(){
-  const result=reduceDocument(doc,{type:'optimizeWechat'},selectedId);
-  if(result.changed){
-    const dialogWasOpen=Boolean(document.querySelector('#draftDialog')?.open);
-    selectedId=result.selectedId;
-    doc=store.commit(result.doc,'提交前智能优化微信发布约束');
-    persist();
-    render();
-    if(dialogWasOpen) document.querySelector('#draftDialog')?.showModal();
-    setStatus(result.optimization?.changes?.join('；')||'已执行微信发布约束优化');
-  }
-  return result.optimization;
+async function optimizeWechatForSubmit(){
+  const dialogWasOpen=Boolean(document.querySelector('#draftDialog')?.open);
+  const result = await autoRepairWechatConstraints('提交前智能优化微信发布约束');
+  if (dialogWasOpen && !document.querySelector('#draftDialog')?.open) document.querySelector('#draftDialog')?.showModal();
+  return result;
 }
 function exportHtml(){ const html=renderArticleHtml(doc); const blob=new Blob([html],{type:'text/html;charset=utf-8'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`wechat-layout-${doc.meta.revision}.html`;a.click();URL.revokeObjectURL(a.href);setStatus('已导出 HTML'); }
 function createDraftBundle(){
@@ -482,7 +648,7 @@ function renderAuthBox(value={}){
 async function submitDraftToWechat({skipConfirm=false}={}){
   let statusEl=document.querySelector('#draftStatus');
   try {
-    optimizeWechatForSubmit();
+    await optimizeWechatForSubmit();
     statusEl=document.querySelector('#draftStatus');
     const validation=getWechatDraftValidation();
     renderDraftLimitBox(validation);
@@ -518,8 +684,7 @@ async function submitDraftToWechat({skipConfirm=false}={}){
       setStatus('已生成本地微信草稿包');
     }
   } catch(error) { statusEl.className='draft-status local error'; statusEl.textContent=`提交失败：${error.message}`; setStatus(`草稿导出失败：${error.message}`); }
-}
-async function handleArticleImport(fileList=[], pastedText=''){
+}async function handleArticleImport(fileList=[], pastedText=''){
   try {
     const files=[...fileList];
     const articleFile=files.find(file=>/\.(md|markdown|txt)$/i.test(file.name)||file.type.startsWith('text/'));
@@ -537,8 +702,7 @@ async function handleArticleImport(fileList=[], pastedText=''){
     }
   } catch(err) { setStatus(`导入失败：${err.message}`); }
 }
-window.wechatLayoutHarness = {
-  getState: () => structuredClone(doc),
+window.wechatLayoutHarness = {  getState: () => structuredClone(doc),
   applyIntent: (intent, label='Harness 编辑') => commit(intent, label),
   applyText: (text) => commit(parseCommand(text), `Harness：${text.slice(0,24)}`),
   importArticle: ({text,filename='pasted-article.txt',assets=[]}) => { const incoming=importArticle({text,filename,assets:mergeAssets(loadAssetLibrary(), assets),autoCompose:true,visualOptions:{generate:true,maxGenerated:3,titleMode:'viral',forceTitle:true}}); const changed=commit({type:'replaceDocument',doc:incoming},`Harness 导入：${filename}`); return changed ? {doc:structuredClone(doc),guidance:getLayoutGuidance(doc)} : null; },
